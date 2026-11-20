@@ -1,0 +1,22 @@
+name: Testes
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Verificações (sintaxe, versão, nenhum dado no repositório)
+        run: node scripts/check.mjs
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Testes do app com dados fictícios
+        run: npx playwright test

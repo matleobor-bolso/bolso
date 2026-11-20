@@ -1,0 +1,13 @@
+{
+  "name": "bolso",
+  "private": true,
+  "description": "Bolso — finanças pessoais (app web estático)",
+  "scripts": {
+    "check": "node scripts/check.mjs",
+    "test": "playwright test",
+    "serve": "python3 -m http.server 4173 --directory app"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.1"
+  }
+}
