@@ -1,0 +1,11 @@
+# Dependências e resultados de teste
+node_modules/
+test-results/
+playwright-report/
+
+# NUNCA versionar dados financeiros (backups, exportações)
+*.csv
+*backup*.json
+*dados*.json
+*conflito*.json
+*.xlsx
