@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://accounts.google.com/gsi/client; style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style; connect-src 'self' https://www.googleapis.com https://accounts.google.com/gsi/; frame-src https://accounts.google.com/gsi/; img-src 'self' data: blob:; font-src 'self'; manifest-src 'self'; worker-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#136f63">
+<title>Bolso</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="logo">B</div>
+    <h1 id="title">Bolso</h1>
+    <button class="sync" id="sync" data-act="sync" aria-label="Sincronização"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19H7a5 5 0 1 1 .9-9.92A6 6 0 0 1 19 11a4 4 0 0 1-1.5 8z"/></svg><i></i><span></span></button>
+    <div class="monthnav" id="monthnav">
+      <button id="prevM" aria-label="Mês anterior">‹</button>
+      <span id="monthLbl"></span>
+      <button id="nextM" aria-label="Próximo mês">›</button>
+    </div>
+  </header>
+  <div id="banner"></div>
+  <main id="view"><div class="empty">Carregando seus dados…</div></main>
+</div>
+
+<nav class="tabs"><div class="in">
+  <button data-tab="home" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Início</button>
+  <button data-tab="tx"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Lançamentos</button>
+  <button data-tab="cards"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>Cartões</button>
+  <button data-tab="inv"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>Investir</button>
+  <button data-tab="more"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19V10M10 19V5M16 19v-7M22 19H2"/></svg>Mais</button>
+</div></nav>
+<button class="fab" id="fab" aria-label="Novo lançamento">+</button>
+
+<div class="overlay" id="ov"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+
+<div class="update" id="update" hidden><span>Nova versão do Bolso disponível.</span><button id="updBtn">Atualizar</button></div>
+
+<div class="lock" id="lock" role="dialog" aria-label="Bolso bloqueado">
+  <div class="lockbox">
+    <div class="logo big">B</div>
+    <h2>Bolso bloqueado</h2>
+    <p>Use a digital ou o desbloqueio do celular para abrir.</p>
+    <button class="btn" id="unlockBtn">Desbloquear</button>
+    <p class="lockmsg" id="lockMsg" aria-live="polite"></p>
+  </div>
+</div>
+<script src="app.js" defer></script>
+</body>
+</html>
