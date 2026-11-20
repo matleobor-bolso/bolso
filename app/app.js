@@ -117,11 +117,26 @@ async function fileToLogo(file){
   const url = URL.createObjectURL(file);
   try{
     const img = await new Promise((res,rej)=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
+    // 1) Acha a margem de cor uniforme (fundo branco, transparente etc.) para cortá-la.
+    const A = 256, k0 = Math.min(1, A/Math.max(img.width, img.height));
+    const aw = Math.max(1, Math.round(img.width*k0)), ah = Math.max(1, Math.round(img.height*k0));
+    const ca = document.createElement("canvas"); ca.width = aw; ca.height = ah;
+    const ga = ca.getContext("2d", {willReadFrequently:true}); ga.drawImage(img, 0, 0, aw, ah);
+    const d = ga.getImageData(0, 0, aw, ah).data;
+    const at = (x,y)=>{ const i=(y*aw+x)*4; return [d[i],d[i+1],d[i+2],d[i+3]]; };
+    const bg = at(0,0);
+    const differs = p => (bg[3]<16 && p[3]<16) ? false : (Math.abs(p[0]-bg[0])+Math.abs(p[1]-bg[1])+Math.abs(p[2]-bg[2])+Math.abs(p[3]-bg[3])) > 48;
+    let x0=aw, y0=ah, x1=-1, y1=-1;
+    for(let y=0;y<ah;y++) for(let x=0;x<aw;x++) if(differs(at(x,y))){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }
+    if(x1<0){ x0=0; y0=0; x1=aw-1; y1=ah-1; }
+    const sx = x0/k0, sy = y0/k0, sw = (x1-x0+1)/k0, sh = (y1-y0+1)/k0;
+    // 2) Centraliza o conteúdo num quadrado; se sobrar espaço, preenche com a cor de fundo original.
     const N = 128, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
-    const k = Math.min(N/img.width, N/img.height); const w = img.width*k, h = img.height*k;
-    g.drawImage(img, (N-w)/2, (N-h)/2, w, h);
-    let d = c.toDataURL("image/webp", 0.85); if(!d.startsWith("data:image/webp")) d = c.toDataURL("image/png");
-    return safeLogo(d);
+    if(bg[3] >= 16){ g.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`; g.fillRect(0,0,N,N); }
+    const k = Math.min(N/sw, N/sh); const w = sw*k, h = sh*k;
+    g.drawImage(img, sx, sy, sw, sh, (N-w)/2, (N-h)/2, w, h);
+    let out = c.toDataURL("image/webp", 0.88); if(!out.startsWith("data:image/webp")) out = c.toDataURL("image/png");
+    return safeLogo(out);
   } finally { URL.revokeObjectURL(url); }
 }
 function logoField(logo){
@@ -142,18 +157,21 @@ function render(){
   document.body.classList.toggle("nodata", !S.cfg);
   if(!S.cfg){ $("#title").textContent = "Bolso"; $("#title").classList.remove("greet"); $("#view").innerHTML = viewWelcome(); return; }
   document.querySelectorAll("nav.tabs button[data-tab]").forEach(b=>b.classList.toggle("on", b.dataset.tab===S.tab));
-  $("#monthLbl").textContent = ymLabel(S.month);
+  const short = window.innerWidth < 430; const [ly,lm] = S.month.split("-").map(Number);
+  $("#monthLbl").textContent = short ? MES3[lm-1].replace(/^./,c=>c.toUpperCase()) + (ly!==new Date().getFullYear()?" "+String(ly).slice(2):"") : ymLabel(S.month);
+  $("#monthLbl").title = ymLabel(S.month);
   $("#monthnav").style.visibility = (S.tab==="more") ? "hidden" : "visible";
   const hr = new Date().getHours(); const hi = hr<12?"Bom dia":hr<18?"Boa tarde":"Boa noite";
-  $("#title").innerHTML = S.tab==="home" ? `<small>${hi}${S.name?",":""}</small>${S.name?esc(S.name.split(" ")[0]):""}` : {tx:"Lançamentos",cards:"Cartões",more:"Mais",inv:"Investimentos"}[S.tab];
+  $("#title").innerHTML = S.tab==="home" ? `<small>${hi}${S.name?",":""}</small>${S.name?esc(S.name.split(" ")[0]):""}` : {tx:"Lançamentos",cards:"Cartões",more:"Configurações",inv:"Investimentos",rep:"Relatórios"}[S.tab];
   $("#title").classList.toggle("greet", S.tab==="home");
   const v = $("#view");
   if(S.tab==="home") v.innerHTML = viewHome();
   else if(S.tab==="tx") v.innerHTML = viewTx();
   else if(S.tab==="cards") v.innerHTML = viewCards();
   else if(S.tab==="more") v.innerHTML = viewMore();
+  else if(S.tab==="rep") v.innerHTML = viewReports();
   else if(S.tab==="inv") v.innerHTML = viewInv();
-  if(S.tab==="more") bindChart();
+  if(S.tab==="rep") bindChart();
   if(S.tab==="inv") bindInvChart();
 }
 
@@ -230,7 +248,7 @@ function viewHome(){
   }
 
   // onde foi o dinheiro
-  h += `<div class="card"><h2>Onde foi o dinheiro <button class="linkbtn" data-act="tab" data-tab="more">Relatórios</button></h2>${treemap(ym,7)}</div>`;
+  h += `<div class="card"><h2>Onde foi o dinheiro <button class="linkbtn" data-act="tab" data-tab="rep">Relatórios</button></h2>${treemap(ym,7)}</div>`;
   return h;
 }
 
@@ -387,10 +405,9 @@ function viewCards(){
   return h;
 }
 
-function viewMore(){
+function viewReports(){
   const ym = S.month;
-  let h = `<div class="sectiontitle" style="margin-top:4px">Relatórios · ${ymLabel(ym)}</div>`;
-  h += `<div class="card"><h2>Despesas por categoria</h2>${treemap(ym,10)}${catList(ym)}</div>`;
+  let h = `<div class="card"><h2>Despesas por categoria</h2>${treemap(ym,10)}${catList(ym)}</div>`;
   // 6 meses
   const months = []; for(let k=5;k>=0;k--) months.push(ymAdd(ym,-k));
   const data = months.map(m=>({m,...monthSums(m)}));
@@ -401,8 +418,11 @@ function viewMore(){
     h += `<div class="legend"><span><i style="background:var(--s1)"></i>Receitas</span><span><i style="background:var(--s2)"></i>Despesas</span></div><div class="chartwrap" id="chart">${barChart(data)}<div class="tip" id="tip"></div></div>`;
   }
   h += `</div>`;
+  return h;
+}
 
-  h += `<div class="sectiontitle">Cadastros</div><div class="list">
+function viewMore(){
+  let h = `<div class="sectiontitle" style="margin-top:4px">Cadastros</div><div class="list">
     <div class="row click" data-act="manage" data-what="accounts"><div class="ic">🏦</div><div class="mid"><div class="ttl">Contas</div><div class="meta">${S.cfg.accounts.length} cadastrada(s)</div></div><div class="mut">›</div></div>
     <div class="row click" data-act="manage" data-what="cards"><div class="ic">💳</div><div class="mid"><div class="ttl">Cartões de crédito</div><div class="meta">${S.cfg.cards.length} cadastrado(s)</div></div><div class="mut">›</div></div>
     <div class="row click" data-act="manage" data-what="cats"><div class="ic">🏷️</div><div class="mid"><div class="ttl">Categorias</div><div class="meta">${S.cfg.categories.length} categorias</div></div><div class="mut">›</div></div>
@@ -805,7 +825,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.1.0";
+const APP_VERSION = "1.1.1";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1021,6 +1041,7 @@ document.addEventListener("visibilitychange", ()=>{
 });
 window.addEventListener("online", ()=>{ renderSync(); scheduleSync(); });
 window.addEventListener("offline", renderSync);
+let resizeT; window.addEventListener("resize", ()=>{ clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
 window.addEventListener("pagehide", ()=>persistLocal(true));
 
 /* ============ Boas-vindas (sem dados ainda) ============ */
