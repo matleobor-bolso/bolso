@@ -162,7 +162,7 @@ function render(){
   $("#monthLbl").title = ymLabel(S.month);
   $("#monthnav").style.visibility = (S.tab==="more") ? "hidden" : "visible";
   const hr = new Date().getHours(); const hi = hr<12?"Bom dia":hr<18?"Boa tarde":"Boa noite";
-  $("#title").innerHTML = S.tab==="home" ? `<small>${hi}${S.name?",":""}</small>${S.name?esc(S.name.split(" ")[0]):""}` : {tx:"Lançamentos",cards:"Cartões",more:"Configurações",inv:"Investimentos",rep:"Relatórios"}[S.tab];
+  $("#title").innerHTML = S.tab==="home" ? `<small>${hi}${S.name?",":""}</small>${S.name?esc(S.name.split(" ")[0]):""}` : {tx:"Lançamentos",cards:"Cartões",more:"Configurações",inv:"Investimentos",rep:"Relatórios",lim:"Limites"}[S.tab];
   $("#title").classList.toggle("greet", S.tab==="home");
   const v = $("#view");
   if(S.tab==="home") v.innerHTML = viewHome();
@@ -170,6 +170,7 @@ function render(){
   else if(S.tab==="cards") v.innerHTML = viewCards();
   else if(S.tab==="more") v.innerHTML = viewMore();
   else if(S.tab==="rep") v.innerHTML = viewReports();
+  else if(S.tab==="lim") v.innerHTML = viewLimits();
   else if(S.tab==="inv") v.innerHTML = viewInv();
   if(S.tab==="rep") bindChart();
   if(S.tab==="inv") bindInvChart();
@@ -208,8 +209,10 @@ function viewHome(){
   S.cfg.cards.forEach(c=>{ const k=ym; const t=invoiceTotal(c.id,k); if(t>0 && !S.cfg.invoicePaid[c.id+"|"+k]) invDue.push({c,k,t,due:invoiceDates(k,c).due}); });
   const toPay = pend.filter(i=>i.type==="exp").reduce((s,i)=>s+i.amount,0) + invDue.reduce((s,x)=>s+x.t,0);
   const toRec = pend.filter(i=>i.type==="inc").reduce((s,i)=>s+i.amount,0);
-  h += `<div class="card"><h2>Pendências <span class="t2" style="font-weight:500">${!pend.length&&!invDue.length?"":`<span class="exp">−${money(toPay)}</span>${toRec?` · <span class="inc">+${money(toRec)}</span>`:""}`}</span></h2>`;
-  if(!pend.length && !invDue.length) h += `<div class="mut" style="font-size:14px">Tudo em dia neste mês ✓</div>`;
+  const nP = pend.length + invDue.length; const open = pendOpen();
+  h += `<div class="card"><button class="colh" data-act="togglePend" aria-expanded="${open}"><span class="ct">Pendências${nP?` <span class="badge">${nP}</span>`:""}</span><span class="t2 csum">${!nP?"":`<span class="exp">−${money(toPay)}</span>${toRec?` · <span class="inc">+${money(toRec)}</span>`:""}`}</span><span class="chev ${open?"up":""}" aria-hidden="true">⌄</span></button>`;
+  if(!open){}
+  else if(!nP) h += `<div class="mut" style="font-size:14px;margin-top:10px">Tudo em dia neste mês ✓</div>`;
   else {
     invDue.forEach(x=>{ h += `<div class="row click pend" data-act="goinv" data-card="${x.c.id}" data-key="${x.k}"><div class="ic">${cardIc(x.c)}</div><div class="mid"><div class="ttl">Fatura ${esc(x.c.name)}</div><div class="meta">vence ${x.due.slice(8)}/${x.due.slice(5,7)} · ${invoiceStatus(x.c.id,x.k).label.toLowerCase()}</div></div><div class="amt">− ${money(x.t)}</div></div>`; });
     pend.slice(0,5).forEach(i=>h+=rowTx(i,{showDate:true}));
@@ -217,12 +220,10 @@ function viewHome(){
   }
   h += `</div>`;
 
-  // orçamentos
-  h += `<div class="card"><h2>Limites de gastos <button class="linkbtn" data-act="budgets">Editar</button></h2>${budgetView(ym)}</div>`;
 
   // contas
   const accs = S.cfg.accounts.filter(a=>!a.archived && accKind(a)==="dia");
-  h += `<div class="card"><h2>Contas do dia a dia <button class="linkbtn" data-act="newAccount">+ Nova</button></h2>`;
+  h += `<div class="card"><h2>Contas do dia a dia <span class="hbtns"><button class="linkbtn" data-act="reorder" data-what="dia" aria-label="Reordenar contas">⇅ Ordenar</button><button class="linkbtn" data-act="newAccount">+ Nova</button></span></h2>`;
   accs.forEach(a=>{ h += `<div class="row click" data-act="editAccount" data-id="${a.id}"><div class="ic">${accIc(a)}</div><div class="mid"><div class="ttl">${esc(a.name)}</div></div><div class="amt">${money(accountBalance(a.id))}</div></div>`; });
   if(!accs.length) h += `<div class="empty">Nenhuma conta ainda.</div>`;
   h += `</div>`;
@@ -231,7 +232,7 @@ function viewHome(){
   const invs = S.cfg.accounts.filter(a=>!a.archived && accKind(a)==="inv");
   if(invs.length){
     const tot = totalBalance({}, "inv"); const rd = rendIn(ym);
-    h += `<div class="card"><h2>Investimentos <button class="linkbtn" data-act="tab" data-tab="inv">Ver tudo</button></h2>
+    h += `<div class="card"><h2>Investimentos <span class="hbtns"><button class="linkbtn" data-act="reorder" data-what="inv" aria-label="Reordenar investimentos">⇅ Ordenar</button><button class="linkbtn" data-act="tab" data-tab="inv">Ver tudo</button></span></h2>
       <div class="invtot"><b>${money(tot)}</b>${rd?`<span class="${rd>=0?"inc":"exp"}">${rd>=0?"+":"−"}${money(Math.abs(rd))} de rendimento em ${MES3[+ym.slice(5)-1]}</span>`:""}</div>`;
     invs.forEach(a=>h+=invRow(a,true));
     h += `<div class="patr">Patrimônio total <b>${money(now + tot)}</b></div></div>`;
@@ -240,15 +241,13 @@ function viewHome(){
   // cartões
   const cards = S.cfg.cards.filter(c=>!c.archived);
   if(cards.length){
-    h += `<div class="card"><h2>Cartões <button class="linkbtn" data-act="tab" data-tab="cards">Faturas</button></h2>`;
+    h += `<div class="card"><h2>Cartões <span class="hbtns"><button class="linkbtn" data-act="reorder" data-what="cards" aria-label="Reordenar cartões">⇅ Ordenar</button><button class="linkbtn" data-act="tab" data-tab="cards">Faturas</button></span></h2>`;
     cards.forEach(c=>{ const k=currentInvoiceKey(c); const t=invoiceTotal(c.id,k); const used=cardUsed(c.id); const pct=c.limit?Math.min(100,used/c.limit*100):0; const due=invoiceDates(k,c).due;
       h += `<div class="row click" data-act="goinv" data-card="${c.id}" data-key="${k}" style="flex-wrap:wrap"><div class="ic">${cardIc(c)}</div><div class="mid"><div class="ttl">${esc(c.name)}</div><div class="meta">vence ${due.slice(8)}/${due.slice(5,7)}${c.limit?` · disponível ${money(c.limit-used)}`:""}</div></div><div class="amt">${money(t)}</div>
       ${c.limit?`<div class="progress thin" style="flex-basis:100%"><i style="width:${pct}%" class="${pct>=90?"over":""}"></i></div>`:""}</div>`; });
     h += `</div>`;
   }
 
-  // onde foi o dinheiro
-  h += `<div class="card"><h2>Onde foi o dinheiro <button class="linkbtn" data-act="tab" data-tab="rep">Relatórios</button></h2>${treemap(ym,7)}</div>`;
   return h;
 }
 
@@ -565,6 +564,58 @@ function moveForm(kind, invId){
   txForm(null, kind==="aporte" ? {type:"tr", accountId:main.id, toAccountId:inv, desc:"Aporte "+(acc(inv)?.name||""), title:"Aportar"} : {type:"tr", accountId:inv, toAccountId:main.id, desc:"Resgate "+(acc(inv)?.name||""), title:"Resgatar"});
 }
 
+
+/* ---- Pendências recolhíveis (preferência deste aparelho) ---- */
+function pendOpen(){ try{ return localStorage.getItem("bolso-pend-open") !== "0"; }catch(e){ return true; } }
+function togglePend(){ try{ localStorage.setItem("bolso-pend-open", pendOpen() ? "0" : "1"); }catch(e){} render(); }
+
+/* ---- Limites (aba própria) ---- */
+function viewLimits(){
+  const ym = S.month;
+  return `<div class="card"><h2>Limites de ${ymLabel(ym)} <button class="linkbtn" data-act="budgets">Editar</button></h2>${budgetView(ym)}</div>`;
+}
+
+/* ---- Reordenar contas e cartões ---- */
+function reorderSheet(what){
+  const list = what==="cards" ? S.cfg.cards : S.cfg.accounts;
+  const keep = x => what==="cards" ? !x.archived : (!x.archived && accKind(x)===what);
+  const title = {dia:"Ordenar contas do dia a dia", inv:"Ordenar investimentos", cards:"Ordenar cartões"}[what];
+  const draw = ()=>{
+    const items = list.filter(keep);
+    const st = $("#sheet") ? $("#sheet").scrollTop : 0;
+    openSheet(`<h3>${title}</h3><p class="t2" style="margin-top:-6px;font-size:14px">Use as setas para mudar a posição. A ordem vale para a tela inicial, as listas e os seletores.</p>
+      <div class="list">${items.map((x,i)=>`<div class="row ordrow"><div class="ic">${what==="cards"?cardIc(x):accIc(x)}</div><div class="mid"><div class="ttl">${esc(x.name)}</div></div>
+        <button class="ordbtn" data-mv="${x.id}" data-d="-1" ${i===0?"disabled":""} aria-label="Subir ${esc(x.name)}">↑</button><button class="ordbtn" data-mv="${x.id}" data-d="1" ${i===items.length-1?"disabled":""} aria-label="Descer ${esc(x.name)}">↓</button></div>`).join("")}</div>
+      <button class="btn" id="ordOk" style="margin-top:12px">Pronto</button>`);
+    $("#sheet").scrollTop = st;
+    $("#sheet").querySelectorAll("[data-mv]").forEach(b=>b.onclick=()=>{
+      const items2 = list.filter(keep); const idx = items2.findIndex(x=>x.id===b.dataset.mv); const other = items2[idx + Number(b.dataset.d)];
+      if(!other) return; const i = list.indexOf(items2[idx]), j = list.indexOf(other); [list[i], list[j]] = [list[j], list[i]];
+      saveCfg(); render(); draw();
+    });
+    $("#ordOk").onclick = closeSheet;
+  };
+  draw();
+}
+
+/* ---- Seletor de conta/cartão com os mesmos ícones/logos da tela inicial ---- */
+function srcItems(withCards){
+  const accs = S.cfg.accounts.filter(a=>!a.archived);
+  const it = [...accs.filter(a=>accKind(a)==="dia"), ...accs.filter(a=>accKind(a)==="inv")].map(a=>({k:"a:"+a.id, name:a.name, icon:accIcSm(a)}));
+  if(withCards) it.splice(accs.filter(a=>accKind(a)==="dia").length, 0, ...S.cfg.cards.filter(c=>!c.archived).map(c=>({k:"c:"+c.id, name:c.name, icon:cardIcSm(c)})));
+  return it;
+}
+function chipPicker(name, items, sel){
+  if(!items.some(i=>i.k===sel) && items.length) sel = items[0].k;
+  return `<input type="hidden" name="${name}" value="${esc(sel)}"><div class="pills srcpick" data-for="${name}" role="radiogroup">${items.map(i=>`<button type="button" class="pill ${i.k===sel?"on":""}" data-pk="${i.k}" role="radio" aria-checked="${i.k===sel}">${i.icon} ${esc(i.name)}</button>`).join("")}</div>`;
+}
+function bindChipPickers(root, onChange){
+  root.querySelectorAll(".srcpick").forEach(g=>{
+    const inp = root.querySelector(`input[name="${g.dataset.for}"]`);
+    g.querySelectorAll("[data-pk]").forEach(b=>b.onclick=()=>{ inp.value = b.dataset.pk; g.querySelectorAll("[data-pk]").forEach(x=>{ x.classList.toggle("on", x===b); x.setAttribute("aria-checked", x===b); }); onChange && onChange(g.dataset.for, inp.value); });
+  });
+}
+
 /* ============ Sheets / formulários ============ */
 function openSheet(html){ $("#sheet").innerHTML = `<div class="grab"></div>`+html; $("#ov").classList.add("open"); }
 function closeSheet(){ $("#ov").classList.remove("open"); $("#sheet").innerHTML=""; }
@@ -585,7 +636,9 @@ function txForm(existing, preset){
   const it = existing || {type:"exp", date:todayStr(), paid:true, ...(preset||{})};
   if(!S.cfg.accounts.length){ toast("Cadastre uma conta primeiro."); return manageAccounts(); }
   let type = it.type;
-  const src = it.cardId ? "c:"+it.cardId : "a:"+(it.accountId || S.cfg.accounts[0].id);
+  const firstDia = S.cfg.accounts.find(a=>!a.archived && accKind(a)==="dia") || S.cfg.accounts[0];
+  let src = it.cardId ? "c:"+it.cardId : "a:"+(it.accountId || firstDia.id);
+  let toV = "a:"+(it.toAccountId||(S.cfg.accounts[1]||S.cfg.accounts[0]).id);
   let keep = {}; let showMore = !!(existing && existing.notes);
   const draw = ()=>{
     const f0 = $("#txf"); if(f0){ keep = {amount:f0.amount.value, desc:f0.desc.value, date:f0.date.value, notes:f0.notes.value}; }
@@ -597,10 +650,10 @@ function txForm(existing, preset){
       <label class="f">Descrição<input name="desc" placeholder="${isTr?"Ex.: reserva":"Ex.: almoço, aluguel"}" value="${esc(keep.desc??(it.desc||""))}" maxlength="80"></label>
       <div class="two">
         <label class="f">Data<input type="date" name="date" value="${keep.date||it.date}" required></label>
-        ${isTr?`<label class="f">De<select name="src">${accOptions(src)}</select></label>`:`<label class="f">Categoria<select name="cat">${catOptions(type,it.catId)}</select></label>`}
+        ${isTr?"":`<label class="f">Categoria<select name="cat">${catOptions(type,it.catId)}</select></label>`}
       </div>
-      ${isTr?`<label class="f">Para<select name="to">${accOptions("a:"+(it.toAccountId||(S.cfg.accounts[1]||S.cfg.accounts[0]).id))}</select></label>`
-            :`<label class="f">${type==="exp"?"Pago com":"Recebido em"}<select name="src" id="srcSel">${srcOptions(src, type==="exp")}</select></label>`}
+      ${isTr?`<div class="f"><span>De</span>${chipPicker("src", srcItems(false), src.startsWith("c:")?"a:"+S.cfg.accounts[0].id:src)}</div><div class="f"><span>Para</span>${chipPicker("to", srcItems(false), toV)}</div>`
+            :`<div class="f"><span>${type==="exp"?"Pago com":"Recebido em"}</span>${chipPicker("src", srcItems(type==="exp"), src)}</div>`}
       <div class="switch" id="paidRow"><span>${type==="inc"?"Recebido":"Pago"}</span><input type="checkbox" name="paid" ${it.paid?"checked":""}></div>
       <button type="button" class="linkbtn moreopt" id="moreOpt" ${showMore?'style="display:none"':""}>+ Repetir, parcelar ou observação</button>
       <div id="moreBox" ${showMore?"":'style="display:none"'}>
@@ -612,9 +665,9 @@ function txForm(existing, preset){
       ${existing?`<button class="btn danger" type="button" id="delTx">Excluir</button>`:""}
     </form>`);
     $("#sheet").querySelectorAll("[data-type]").forEach(b=>b.onclick=()=>{ type=b.dataset.type; draw(); });
-    const srcSel = $("#srcSel"); const paidRow=$("#paidRow");
-    const upd = ()=>{ if(srcSel) paidRow.style.display = srcSel.value.startsWith("c:") ? "none":"flex"; };
-    if(srcSel){ srcSel.onchange=upd; upd(); }
+    const paidRow=$("#paidRow"); const f = $("#txf");
+    const upd = ()=>{ paidRow.style.display = (!isTr && f.src.value.startsWith("c:")) ? "none":"flex"; };
+    bindChipPickers(f, (n,v)=>{ if(n==="src") src=v; if(n==="to") toV=v; upd(); }); upd();
     $("#moreOpt").onclick=()=>{ showMore=true; $("#moreBox").style.display="block"; $("#moreOpt").style.display="none"; };
     const rep=$("#repSel"); if(rep) rep.onchange=()=>{ $("#nRow").style.display = rep.value==="inst"?"block":"none"; };
     const dateIn = $("#txf").date; dateIn.onchange = ()=>{ if(!existing) $("#txf").paid.checked = dateIn.value <= todayStr(); };
@@ -738,10 +791,11 @@ function cardForm(c){
     <label class="f">Limite<input name="limit" inputmode="decimal" value="${esc(keep.limit??fmtInput(Number(x.limit)||0))}"></label>
     <div class="two"><label class="f">Dia do fechamento<input name="closeDay" type="number" min="1" max="31" value="${esc(keep.closeDay??x.closeDay)}" required></label>
     <label class="f">Dia do vencimento<input name="dueDay" type="number" min="1" max="31" value="${esc(keep.dueDay??x.dueDay)}" required></label></div>
-    <label class="f">Conta usada para pagar<select name="acc">${accOptions(keep.acc||("a:"+x.accountId))}</select></label>
+    <div class="f"><span>Conta usada para pagar</span>${chipPicker("acc", srcItems(false), keep.acc||("a:"+x.accountId))}</div>
     ${logoField(logo)}
     <button class="btn" type="submit">Salvar</button>${c?`<button class="btn danger" type="button" id="delC">Excluir cartão</button>`:""}</form>`);
   bindLogoField(v=>{ logo=v; draw(); });
+  bindChipPickers($("#cf"));
   $("#cf").onsubmit = e=>{ e.preventDefault(); const fd=new FormData(e.target); const lim=parseMoney(fd.get("limit"));
     const obj = {name:fd.get("name").trim(), limit:isNaN(lim)?0:lim, closeDay:Math.min(31,Math.max(1,+fd.get("closeDay"))), dueDay:Math.min(31,Math.max(1,+fd.get("dueDay"))), accountId:fd.get("acc").slice(2), logo};
     if(c) Object.assign(c,obj); else { const nc={id:newId(),...obj}; S.cfg.cards.push(nc); S.cardSel=nc.id; }
@@ -759,8 +813,9 @@ function payInvoice(key){
   openSheet(`<h3>Pagar fatura de ${ymLabel(key)}</h3><form id="pf">
     <label class="f">Valor<input class="money" name="amount" inputmode="decimal" value="${fmtInput(total)}"></label>
     <div class="two"><label class="f">Data do pagamento<input type="date" name="date" value="${todayStr()}"></label>
-    <label class="f">Conta<select name="acc">${accOptions("a:"+c.accountId)}</select></label></div>
+    </div><div class="f"><span>Conta</span>${chipPicker("acc", srcItems(false), "a:"+c.accountId)}</div>
     <button class="btn" type="submit">Confirmar pagamento</button></form>`);
+  bindChipPickers($("#pf"));
   $("#pf").onsubmit = e=>{ e.preventDefault(); const fd=new FormData(e.target); const v=parseMoney(fd.get("amount")); if(!(v>0)) return toast("Valor inválido.");
     S.cfg.invoicePaid[c.id+"|"+key] = {accountId:fd.get("acc").slice(2), date:fd.get("date"), amount:v}; saveCfg(); closeSheet(); render(); toast("Fatura paga."); };
 }
@@ -825,7 +880,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.1.1";
+const APP_VERSION = "1.2.0";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1110,6 +1165,8 @@ document.addEventListener("click", e=>{
   else if(a==="tab"){ S.tab=t.dataset.tab; if(t.dataset.filter){ S.txFilter=t.dataset.filter; S.fAcc.clear(); S.fCat.clear(); } render(); window.scrollTo(0,0); }
   else if(a==="filter"){ S.txFilter=t.dataset.f; render(); }
   else if(a==="filters") filtersSheet();
+  else if(a==="togglePend") togglePend();
+  else if(a==="reorder") reorderSheet(t.dataset.what);
   else if(a==="invOpen") invSheet(id);
   else if(a==="updBal") updBalSheet(id||null);
   else if(a==="aporte"){ closeSheet(); moveForm("aporte", id); }
