@@ -162,15 +162,16 @@ function render(){
   $("#monthLbl").title = ymLabel(S.month);
   $("#monthnav").style.visibility = (S.tab==="more") ? "hidden" : "visible";
   const hr = new Date().getHours(); const hi = hr<12?"Bom dia":hr<18?"Boa tarde":"Boa noite";
-  $("#title").innerHTML = S.tab==="home" ? `<small>${hi}${S.name?",":""}</small>${S.name?esc(S.name.split(" ")[0]):""}` : {tx:"Lançamentos",cards:"Cartões",more:"Configurações",inv:"Investimentos"}[S.tab];
+  $("#title").innerHTML = S.tab==="home" ? `<small>${hi}${S.name?",":""}</small>${S.name?esc(S.name.split(" ")[0]):""}` : {tx:"Lançamentos",cards:"Cartões",more:"Configurações",inv:"Investimentos",rep:"Relatórios"}[S.tab];
   $("#title").classList.toggle("greet", S.tab==="home");
   const v = $("#view");
   if(S.tab==="home") v.innerHTML = viewHome();
   else if(S.tab==="tx") v.innerHTML = viewTx();
   else if(S.tab==="cards") v.innerHTML = viewCards();
   else if(S.tab==="more") v.innerHTML = viewMore();
+  else if(S.tab==="rep") v.innerHTML = viewReports();
   else if(S.tab==="inv") v.innerHTML = viewInv();
-  if(S.tab==="more") bindChart();
+  if(S.tab==="rep") bindChart();
   if(S.tab==="inv") bindInvChart();
 }
 
@@ -247,7 +248,7 @@ function viewHome(){
   }
 
   // onde foi o dinheiro
-  h += `<div class="card"><h2>Onde foi o dinheiro <button class="linkbtn" data-act="tab" data-tab="more">Relatórios</button></h2>${treemap(ym,7)}</div>`;
+  h += `<div class="card"><h2>Onde foi o dinheiro <button class="linkbtn" data-act="tab" data-tab="rep">Relatórios</button></h2>${treemap(ym,7)}</div>`;
   return h;
 }
 
@@ -404,10 +405,9 @@ function viewCards(){
   return h;
 }
 
-function viewMore(){
+function viewReports(){
   const ym = S.month;
-  let h = `<div class="sectiontitle" style="margin-top:4px">Relatórios · ${ymLabel(ym)}</div>`;
-  h += `<div class="card"><h2>Despesas por categoria</h2>${treemap(ym,10)}${catList(ym)}</div>`;
+  let h = `<div class="card"><h2>Despesas por categoria</h2>${treemap(ym,10)}${catList(ym)}</div>`;
   // 6 meses
   const months = []; for(let k=5;k>=0;k--) months.push(ymAdd(ym,-k));
   const data = months.map(m=>({m,...monthSums(m)}));
@@ -418,8 +418,11 @@ function viewMore(){
     h += `<div class="legend"><span><i style="background:var(--s1)"></i>Receitas</span><span><i style="background:var(--s2)"></i>Despesas</span></div><div class="chartwrap" id="chart">${barChart(data)}<div class="tip" id="tip"></div></div>`;
   }
   h += `</div>`;
+  return h;
+}
 
-  h += `<div class="sectiontitle">Cadastros</div><div class="list">
+function viewMore(){
+  let h = `<div class="sectiontitle" style="margin-top:4px">Cadastros</div><div class="list">
     <div class="row click" data-act="manage" data-what="accounts"><div class="ic">🏦</div><div class="mid"><div class="ttl">Contas</div><div class="meta">${S.cfg.accounts.length} cadastrada(s)</div></div><div class="mut">›</div></div>
     <div class="row click" data-act="manage" data-what="cards"><div class="ic">💳</div><div class="mid"><div class="ttl">Cartões de crédito</div><div class="meta">${S.cfg.cards.length} cadastrado(s)</div></div><div class="mut">›</div></div>
     <div class="row click" data-act="manage" data-what="cats"><div class="ic">🏷️</div><div class="mid"><div class="ttl">Categorias</div><div class="meta">${S.cfg.categories.length} categorias</div></div><div class="mut">›</div></div>

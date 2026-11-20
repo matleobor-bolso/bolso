@@ -10,7 +10,7 @@ test("abre o modo de demonstração e navega pelas abas", async ({ page }) => {
   const errors = []; page.on("pageerror", e => errors.push(String(e)));
   await page.goto("./?demo");
   await expect(page.locator(".hero .lbl")).toHaveText("Disponível nas contas");
-  for (const tab of ["tx", "cards", "inv", "more", "home"]) {
+  for (const tab of ["tx", "rep", "cards", "inv", "more", "home"]) {
     await page.click(`nav [data-tab=${tab}]`);
     await expect(page.locator("#view")).not.toBeEmpty();
   }

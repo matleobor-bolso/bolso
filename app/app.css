@@ -240,8 +240,8 @@ label.btn.sm{color:var(--text)}
 @media (max-width:430px){ .monthnav span{min-width:52px} }
 
 /* ---- barra inferior só com ícones ---- */
-nav.tabs .in{grid-template-columns:repeat(5,1fr)}
+nav.tabs .in{grid-template-columns:repeat(6,1fr)}
 nav.tabs button{padding:6px 0;justify-content:center}
-nav.tabs button svg{width:24px;height:24px;padding:6px 16px;box-sizing:content-box;border-radius:999px;transition:background .15s}
+nav.tabs button svg{width:24px;height:24px;padding:6px 14px;box-sizing:content-box;border-radius:999px;transition:background .15s}
 nav.tabs button.on svg{background:var(--brand-soft)}
 .fab{bottom:calc(72px + env(safe-area-inset-bottom))}
