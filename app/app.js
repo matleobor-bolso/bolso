@@ -162,7 +162,7 @@ function render(){
   $("#monthLbl").title = ymLabel(S.month);
   $("#monthnav").style.visibility = (S.tab==="more") ? "hidden" : "visible";
   const hr = new Date().getHours(); const hi = hr<12?"Bom dia":hr<18?"Boa tarde":"Boa noite";
-  $("#title").innerHTML = S.tab==="home" ? `<small>${hi}${S.name?",":""}</small>${S.name?esc(S.name.split(" ")[0]):""}` : {tx:"Lançamentos",cards:"Cartões",more:"Mais",inv:"Investimentos"}[S.tab];
+  $("#title").innerHTML = S.tab==="home" ? `<small>${hi}${S.name?",":""}</small>${S.name?esc(S.name.split(" ")[0]):""}` : {tx:"Lançamentos",cards:"Cartões",more:"Configurações",inv:"Investimentos"}[S.tab];
   $("#title").classList.toggle("greet", S.tab==="home");
   const v = $("#view");
   if(S.tab==="home") v.innerHTML = viewHome();
