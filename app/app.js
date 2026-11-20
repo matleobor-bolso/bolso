@@ -106,6 +106,36 @@ function removeItem(id){ for(const ym in S.months){ const ix=S.months[ym].findIn
 function findItem(id){ for(const ym in S.months){ const it=S.months[ym].find(i=>i.id===id); if(it) return it; } return null; }
 function commit(touched){ [...new Set(touched)].filter(Boolean).forEach(saveMonth); render(); }
 
+/* ============ Logos das instituições (imagem escolhida pelo usuário, guardada nos dados) ============ */
+const LOGO_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
+const safeLogo = s => (typeof s === "string" && s.length < 200000 && LOGO_RE.test(s)) ? s : null;
+function accIc(a, fb){ const l = safeLogo(a && a.logo); return l ? `<img class="instlogo" src="${l}" alt="">` : esc((a && a.icon) || fb || "🏦"); }
+function cardIc(c){ const l = safeLogo(c && c.logo); return l ? `<img class="instlogo" src="${l}" alt="">` : "💳"; }
+function accIcSm(a, fb){ const l = safeLogo(a && a.logo); return l ? `<img class="instlogo sm" src="${l}" alt="">` : esc((a && a.icon) || fb || "🏦"); }
+function cardIcSm(c){ const l = safeLogo(c && c.logo); return l ? `<img class="instlogo sm" src="${l}" alt="">` : "💳"; }
+async function fileToLogo(file){
+  const url = URL.createObjectURL(file);
+  try{
+    const img = await new Promise((res,rej)=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
+    const N = 128, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
+    const k = Math.min(N/img.width, N/img.height); const w = img.width*k, h = img.height*k;
+    g.drawImage(img, (N-w)/2, (N-h)/2, w, h);
+    let d = c.toDataURL("image/webp", 0.85); if(!d.startsWith("data:image/webp")) d = c.toDataURL("image/png");
+    return safeLogo(d);
+  } finally { URL.revokeObjectURL(url); }
+}
+function logoField(logo){
+  return `<div class="f"><span>Logo da instituição <span class="mut">(opcional)</span></span>
+    <div class="logopick"><div class="ic">${logo?`<img class="instlogo" src="${logo}" alt="">`:"🖼️"}</div>
+    <label class="btn sec sm">Escolher imagem<input type="file" accept="image/*" id="logoIn" hidden></label>
+    ${logo?`<button type="button" class="btn sec sm" id="logoRm">Remover</button>`:""}</div>
+    <div class="mut" style="font-size:12px;margin-top:4px">Dica: salve o ícone do app do banco (por exemplo, da página dele na Play Store) e escolha aqui.</div></div>`;
+}
+function bindLogoField(set){
+  const inp = $("#logoIn"); if(inp) inp.onchange = async ()=>{ const f = inp.files[0]; if(!f) return; try{ const d = await fileToLogo(f); if(!d) throw 0; set(d); }catch(e){ toast("Não consegui usar essa imagem."); } };
+  const rm = $("#logoRm"); if(rm) rm.onclick = ()=>set(null);
+}
+
 /* ============ Renderização ============ */
 function render(){
   if(!S.ready || locked) return;
@@ -163,7 +193,7 @@ function viewHome(){
   h += `<div class="card"><h2>Pendências <span class="t2" style="font-weight:500">${!pend.length&&!invDue.length?"":`<span class="exp">−${money(toPay)}</span>${toRec?` · <span class="inc">+${money(toRec)}</span>`:""}`}</span></h2>`;
   if(!pend.length && !invDue.length) h += `<div class="mut" style="font-size:14px">Tudo em dia neste mês ✓</div>`;
   else {
-    invDue.forEach(x=>{ h += `<div class="row click pend" data-act="goinv" data-card="${x.c.id}" data-key="${x.k}"><div class="ic">💳</div><div class="mid"><div class="ttl">Fatura ${esc(x.c.name)}</div><div class="meta">vence ${x.due.slice(8)}/${x.due.slice(5,7)} · ${invoiceStatus(x.c.id,x.k).label.toLowerCase()}</div></div><div class="amt">− ${money(x.t)}</div></div>`; });
+    invDue.forEach(x=>{ h += `<div class="row click pend" data-act="goinv" data-card="${x.c.id}" data-key="${x.k}"><div class="ic">${cardIc(x.c)}</div><div class="mid"><div class="ttl">Fatura ${esc(x.c.name)}</div><div class="meta">vence ${x.due.slice(8)}/${x.due.slice(5,7)} · ${invoiceStatus(x.c.id,x.k).label.toLowerCase()}</div></div><div class="amt">− ${money(x.t)}</div></div>`; });
     pend.slice(0,5).forEach(i=>h+=rowTx(i,{showDate:true}));
     if(pend.length>5) h += `<button class="more" data-act="tab" data-tab="tx" data-filter="pend">Ver todas as ${pend.length} pendências</button>`;
   }
@@ -175,7 +205,7 @@ function viewHome(){
   // contas
   const accs = S.cfg.accounts.filter(a=>!a.archived && accKind(a)==="dia");
   h += `<div class="card"><h2>Contas do dia a dia <button class="linkbtn" data-act="newAccount">+ Nova</button></h2>`;
-  accs.forEach(a=>{ h += `<div class="row click" data-act="editAccount" data-id="${a.id}"><div class="ic">${a.icon||"🏦"}</div><div class="mid"><div class="ttl">${esc(a.name)}</div></div><div class="amt">${money(accountBalance(a.id))}</div></div>`; });
+  accs.forEach(a=>{ h += `<div class="row click" data-act="editAccount" data-id="${a.id}"><div class="ic">${accIc(a)}</div><div class="mid"><div class="ttl">${esc(a.name)}</div></div><div class="amt">${money(accountBalance(a.id))}</div></div>`; });
   if(!accs.length) h += `<div class="empty">Nenhuma conta ainda.</div>`;
   h += `</div>`;
 
@@ -194,7 +224,7 @@ function viewHome(){
   if(cards.length){
     h += `<div class="card"><h2>Cartões <button class="linkbtn" data-act="tab" data-tab="cards">Faturas</button></h2>`;
     cards.forEach(c=>{ const k=currentInvoiceKey(c); const t=invoiceTotal(c.id,k); const used=cardUsed(c.id); const pct=c.limit?Math.min(100,used/c.limit*100):0; const due=invoiceDates(k,c).due;
-      h += `<div class="row click" data-act="goinv" data-card="${c.id}" data-key="${k}" style="flex-wrap:wrap"><div class="ic">💳</div><div class="mid"><div class="ttl">${esc(c.name)}</div><div class="meta">vence ${due.slice(8)}/${due.slice(5,7)}${c.limit?` · disponível ${money(c.limit-used)}`:""}</div></div><div class="amt">${money(t)}</div>
+      h += `<div class="row click" data-act="goinv" data-card="${c.id}" data-key="${k}" style="flex-wrap:wrap"><div class="ic">${cardIc(c)}</div><div class="mid"><div class="ttl">${esc(c.name)}</div><div class="meta">vence ${due.slice(8)}/${due.slice(5,7)}${c.limit?` · disponível ${money(c.limit-used)}`:""}</div></div><div class="amt">${money(t)}</div>
       ${c.limit?`<div class="progress thin" style="flex-basis:100%"><i style="width:${pct}%" class="${pct>=90?"over":""}"></i></div>`:""}</div>`; });
     h += `</div>`;
   }
@@ -317,7 +347,7 @@ function viewTx(){
 function filtersSheet(){
   let type = S.txFilter; const sa = new Set(S.fAcc), sc = new Set(S.fCat);
   const used = new Set(monthItems(S.month).map(i=>i.catId));
-  const accItems = [...S.cfg.accounts.filter(a=>!a.archived).map(a=>({k:"a:"+a.id, name:a.name, icon:a.icon||"🏦"})), ...S.cfg.cards.filter(c=>!c.archived).map(c=>({k:"c:"+c.id, name:c.name, icon:"💳"}))];
+  const accItems = [...S.cfg.accounts.filter(a=>!a.archived).map(a=>({k:"a:"+a.id, name:a.name, icon:accIcSm(a)})), ...S.cfg.cards.filter(c=>!c.archived).map(c=>({k:"c:"+c.id, name:c.name, icon:cardIcSm(c)}))];
   const catItems = kind => S.cfg.categories.filter(c=>c.kind===kind && (!c.archived || used.has(c.id))).sort((a,b)=>(used.has(b.id)-used.has(a.id)) || a.name.localeCompare(b.name)).map(c=>({k:c.id, name:c.name, icon:c.icon}));
   const pills = (items, set, grp) => `<div class="pills">${items.map(i=>`<button type="button" class="pill ${set.has(i.k)?"on":""}" data-grp="${grp}" data-k="${i.k}">${i.icon} ${esc(i.name)}</button>`).join("")}</div>`;
   const draw = ()=>{
@@ -343,7 +373,7 @@ function viewCards(){
   if(!S.cfg.cards.length) return `<div class="card"><div class="empty">Você ainda não cadastrou cartões de crédito.</div><button class="btn" data-act="newCard">Adicionar cartão</button></div>`;
   if(!S.cardSel || !card(S.cardSel)) S.cardSel = S.cfg.cards[0].id;
   const c = card(S.cardSel); const key = S.month;
-  let h = `<div class="cardsel">${S.cfg.cards.map(x=>`<button class="ccard ${x.id===c.id?"on":""}" data-act="selcard" data-id="${x.id}"><b>💳 ${esc(x.name)}</b><small>usado ${money(cardUsed(x.id))}${x.limit?` de ${money(x.limit)}`:""}</small></button>`).join("")}<button class="ccard" data-act="newCard" style="min-width:90px;text-align:center"><b>+</b><small>Novo</small></button></div>`;
+  let h = `<div class="cardsel">${S.cfg.cards.map(x=>`<button class="ccard ${x.id===c.id?"on":""}" data-act="selcard" data-id="${x.id}"><b>${cardIcSm(x)} ${esc(x.name)}</b><small>usado ${money(cardUsed(x.id))}${x.limit?` de ${money(x.limit)}`:""}</small></button>`).join("")}<button class="ccard" data-act="newCard" style="min-width:90px;text-align:center"><b>+</b><small>Novo</small></button></div>`;
   const items = invoiceItems(c.id,key); const total = invoiceTotal(c.id,key); const st = invoiceStatus(c.id,key); const d = invoiceDates(key,c);
   const paidInfo = S.cfg.invoicePaid[c.id+"|"+key];
   h += `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><div><div class="t2" style="font-size:13px">Fatura de ${ymLabel(key)}</div><div style="font-size:26px;font-weight:700">${money(total)}</div></div><span class="badge ${st.s==="paga"?"paid":st.s==="fechada"?"closed":""}">${st.label}</span></div>
@@ -436,7 +466,7 @@ function invRow(a, compact){
     goalTxt = falta<=0 ? `Meta de ${money(g)} atingida 🎉` : `${Math.round(bal/g*100)}% de ${money(g)}`;
     if(falta>0 && a.goalDate){ const now=ymOf(todayStr()); let n=0, k=now; while(k<a.goalDate && n<600){ k=ymAdd(k,1); n++; } goalTxt += n>0 ? ` · ${money(falta/n)}/mês até ${MES3[+a.goalDate.slice(5)-1]}/${a.goalDate.slice(2,4)}` : ` · prazo vencido`; }
   } else if(!compact) goalTxt = "Sem meta definida";
-  return `<div class="row click invrow" data-act="invOpen" data-id="${a.id}" style="flex-wrap:wrap"><div class="ic">${a.icon||"🐷"}</div><div class="mid"><div class="ttl">${esc(a.name)}</div>${goalTxt?`<div class="meta">${goalTxt}</div>`:""}</div><div class="amt">${money(bal)}</div>${p!==null?`<div class="progress thin" style="flex-basis:100%"><i style="width:${p*100}%"></i></div>`:""}</div>`;
+  return `<div class="row click invrow" data-act="invOpen" data-id="${a.id}" style="flex-wrap:wrap"><div class="ic">${accIc(a,"🐷")}</div><div class="mid"><div class="ttl">${esc(a.name)}</div>${goalTxt?`<div class="meta">${goalTxt}</div>`:""}</div><div class="amt">${money(bal)}</div>${p!==null?`<div class="progress thin" style="flex-basis:100%"><i style="width:${p*100}%"></i></div>`:""}</div>`;
 }
 function viewInv(){
   const ym = S.month;
@@ -480,7 +510,7 @@ function bindInvChart(){
 function invSheet(id){
   const a = acc(id); if(!a) return;
   const mv = allItems().filter(i=>(i.type==="rend" && i.accountId===id) || (i.type==="tr" && (i.accountId===id||i.toAccountId===id))).sort((x,y)=>x.date<y.date?1:-1).slice(0,8);
-  openSheet(`<h3>${a.icon||"🐷"} ${esc(a.name)}</h3><div class="list" style="margin-bottom:12px">${invRow(a,false).replace('data-act="invOpen"','')}</div>
+  openSheet(`<h3>${accIcSm(a,"🐷")} ${esc(a.name)}</h3><div class="list" style="margin-bottom:12px">${invRow(a,false).replace('data-act="invOpen"','')}</div>
     <div class="btns"><button class="btn" data-act="updBal" data-id="${id}">Atualizar saldo</button><button class="btn sec" data-act="aporte" data-id="${id}">Aportar</button><button class="btn sec" data-act="resgate" data-id="${id}">Resgatar</button></div>
     <button class="btn sec" data-act="editAccount" data-id="${id}">Editar conta e meta</button>
     <div class="pgh"><span>Últimos movimentos</span></div>${mv.length?`<div class="list">${mv.map(i=>rowTx(i,{showDate:true})).join("")}</div>`:`<div class="mut" style="font-size:14px">Sem movimentos ainda.</div>`}`);
@@ -490,7 +520,7 @@ function updBalSheet(onlyId){
   const t = todayStr();
   openSheet(`<h3>Atualizar ${onlyId?"saldo":"saldos"}</h3><p class="t2" style="margin-top:-6px;font-size:14px">Abra o app do banco e digite o saldo de hoje. O Bolso calcula o rendimento desde a última atualização. Deixe em branco o que não quiser atualizar.</p>
   <form id="ubf"><label class="f">Data<input type="date" name="date" value="${t}" max="${t}"></label>
-  ${invs.map(a=>{ const lr=lastRend(a.id); return `<div class="ubrow"><div class="mid"><div class="ttl">${a.icon||"🐷"} ${esc(a.name)}</div><div class="meta">No Bolso: ${money(accountBalance(a.id,{upto:t}))}${lr?` · atualizado em ${lr.slice(8)}/${lr.slice(5,7)}`:""}</div><div class="meta ubd" id="ubd-${a.id}"></div></div><input name="${a.id}" inputmode="decimal" placeholder="Saldo hoje"></div>`; }).join("")}
+  ${invs.map(a=>{ const lr=lastRend(a.id); return `<div class="ubrow"><div class="mid"><div class="ttl">${accIcSm(a,"🐷")} ${esc(a.name)}</div><div class="meta">No Bolso: ${money(accountBalance(a.id,{upto:t}))}${lr?` · atualizado em ${lr.slice(8)}/${lr.slice(5,7)}`:""}</div><div class="meta ubd" id="ubd-${a.id}"></div></div><input name="${a.id}" inputmode="decimal" placeholder="Saldo hoje"></div>`; }).join("")}
   <button class="btn" type="submit">Registrar rendimentos</button></form>`);
   const f=$("#ubf");
   const preview = ()=>{ const d=f.date.value||t; invs.forEach(a=>{ const v=parseMoney(f[a.id].value); const el=$("#ubd-"+a.id); if(isNaN(v)){ el.textContent=""; return; } const diff=Math.round((v-accountBalance(a.id,{upto:d}))*100)/100; el.innerHTML = diff===0?"Sem diferença":`Rendimento: <b class="${diff>0?"inc":"exp"}">${diff>0?"+":"−"}${money(Math.abs(diff))}</b>`; }); };
@@ -638,10 +668,10 @@ async function deleteTx(it){
 
 /* ---- Contas ---- */
 function manageAccounts(){
-  openSheet(`<h3>Contas</h3>${[["dia","Dia a dia"],["inv","Investimentos"]].map(([k,l])=>`<div class="pgh"><span>${l}</span></div><div class="list">${S.cfg.accounts.filter(a=>accKind(a)===k).map(a=>`<div class="row click" data-act="editAccount" data-id="${a.id}"><div class="ic">${a.icon||"🏦"}</div><div class="mid"><div class="ttl">${esc(a.name)}${a.archived?' <span class="badge">arquivada</span>':""}</div></div><div class="amt">${money(accountBalance(a.id))}</div></div>`).join("")||'<div class="empty">Nenhuma conta.</div>'}</div>`).join("")}<div class="btns" style="margin-top:12px"><button class="btn" data-act="newAccount">Nova do dia a dia</button><button class="btn sec" data-act="newInv">Novo investimento</button></div>`);
+  openSheet(`<h3>Contas</h3>${[["dia","Dia a dia"],["inv","Investimentos"]].map(([k,l])=>`<div class="pgh"><span>${l}</span></div><div class="list">${S.cfg.accounts.filter(a=>accKind(a)===k).map(a=>`<div class="row click" data-act="editAccount" data-id="${a.id}"><div class="ic">${accIc(a)}</div><div class="mid"><div class="ttl">${esc(a.name)}${a.archived?' <span class="badge">arquivada</span>':""}</div></div><div class="amt">${money(accountBalance(a.id))}</div></div>`).join("")||'<div class="empty">Nenhuma conta.</div>'}</div>`).join("")}<div class="btns" style="margin-top:12px"><button class="btn" data-act="newAccount">Nova do dia a dia</button><button class="btn sec" data-act="newInv">Novo investimento</button></div>`);
 }
 function accountForm(a, presetKind){
-  const x = a || {name:"",kind:presetKind||"dia",initial:0,icon:presetKind==="inv"?"🐷":"🏦"}; let icon = x.icon||"🏦"; let kind = a ? accKind(a) : x.kind;
+  const x = a || {name:"",kind:presetKind||"dia",initial:0,icon:presetKind==="inv"?"🐷":"🏦"}; let icon = x.icon||"🏦"; let kind = a ? accKind(a) : x.kind; let logo = safeLogo(x.logo);
   const icons = ["🏦","👛","💵","🎟️","🐷","📈","🛟","🏖️","👴","🎯","💼","🪙"];
   const draw = ()=>{
     const f0=$("#af"); const keep = f0 ? {name:f0.name.value, initial:f0.initial.value, goal:f0.goal?f0.goal.value:null, goalDate:f0.goalDate?f0.goalDate.value:null} : {};
@@ -652,13 +682,15 @@ function accountForm(a, presetKind){
     <label class="f">Saldo inicial<input name="initial" inputmode="decimal" value="${keep.initial??fmtInput(Number(x.initial)||0)}"></label>
     ${kind==="inv"?`<div class="two"><label class="f">Meta <span class="mut">(opcional)</span><input name="goal" inputmode="decimal" placeholder="Ex.: 70.000,00" value="${keep.goal??(x.goal?fmtInput(x.goal):"")}"></label>
     <label class="f">Até <span class="mut">(opcional)</span><input name="goalDate" type="month" value="${keep.goalDate??(x.goalDate||"")}"></label></div>`:""}
-    <label class="f">Ícone<div class="emojis">${icons.map(e=>`<button type="button" class="${e===icon?"on":""}" data-e="${e}">${e}</button>`).join("")}</div></label>
+    ${logoField(logo)}
+    ${logo?"":`<label class="f">Ícone<div class="emojis">${icons.map(e=>`<button type="button" class="${e===icon?"on":""}" data-e="${e}">${e}</button>`).join("")}</div></label>`}
     ${a?`<div class="switch"><span>Arquivar (esconder dos saldos)</span><input type="checkbox" name="archived" ${a.archived?"checked":""}></div>`:""}
     <button class="btn" type="submit">Salvar</button>${a?`<button class="btn danger" type="button" id="delA">Excluir conta</button>`:""}</form>`);
     $("#sheet").querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>{ kind=b.dataset.k; draw(); });
+    bindLogoField(v=>{ logo=v; draw(); });
     $("#sheet").querySelectorAll("[data-e]").forEach(b=>b.onclick=()=>{ icon=b.dataset.e; $("#sheet").querySelectorAll("[data-e]").forEach(o=>o.classList.toggle("on",o===b)); });
     $("#af").onsubmit = e=>{ e.preventDefault(); const fd=new FormData(e.target); const ini=parseMoney(fd.get("initial"));
-      const obj = {name:fd.get("name").trim(), kind, initial:isNaN(ini)?0:ini, icon, archived:!!fd.get("archived")};
+      const obj = {name:fd.get("name").trim(), kind, initial:isNaN(ini)?0:ini, icon, logo, archived:!!fd.get("archived")};
       if(kind==="inv"){ const g=parseMoney(fd.get("goal")); obj.goal = g>0 ? g : null; obj.goalDate = fd.get("goalDate") || null; } else { obj.goal=null; obj.goalDate=null; }
       if(a) Object.assign(a,obj); else S.cfg.accounts.push({id:newId(),...obj});
       saveCfg(); closeSheet(); render(); toast("Conta salva."); };
@@ -673,27 +705,35 @@ function accountForm(a, presetKind){
 
 /* ---- Cartões ---- */
 function manageCards(){
-  openSheet(`<h3>Cartões de crédito</h3><div class="list">${S.cfg.cards.map(c=>`<div class="row click" data-act="editCard" data-id="${c.id}"><div class="ic">💳</div><div class="mid"><div class="ttl">${esc(c.name)}</div><div class="meta">fecha dia ${c.closeDay} · vence dia ${c.dueDay}</div></div><div class="amt">${c.limit?money(c.limit):""}</div></div>`).join("")||'<div class="empty">Nenhum cartão.</div>'}</div><button class="btn" data-act="newCard" style="margin-top:12px">Novo cartão</button>`);
+  openSheet(`<h3>Cartões de crédito</h3><div class="list">${S.cfg.cards.map(c=>`<div class="row click" data-act="editCard" data-id="${c.id}"><div class="ic">${cardIc(c)}</div><div class="mid"><div class="ttl">${esc(c.name)}</div><div class="meta">fecha dia ${c.closeDay} · vence dia ${c.dueDay}</div></div><div class="amt">${c.limit?money(c.limit):""}</div></div>`).join("")||'<div class="empty">Nenhum cartão.</div>'}</div><button class="btn" data-act="newCard" style="margin-top:12px">Novo cartão</button>`);
 }
 function cardForm(c){
   if(!S.cfg.accounts.length) return toast("Cadastre uma conta primeiro.");
   const x = c || {name:"",limit:0,closeDay:1,dueDay:10,accountId:S.cfg.accounts[0].id};
+  let logo = safeLogo(x.logo);
+  const draw = ()=>{
+  const f0 = $("#cf"); const keep = f0 ? {name:f0.name.value, limit:f0.limit.value, closeDay:f0.closeDay.value, dueDay:f0.dueDay.value, acc:f0.acc.value} : {};
   openSheet(`<h3>${c?"Editar cartão":"Novo cartão"}</h3><form id="cf">
-    <label class="f">Nome<input name="name" value="${esc(x.name)}" placeholder="Ex.: Nubank Roxinho" required maxlength="40"></label>
-    <label class="f">Limite<input name="limit" inputmode="decimal" value="${fmtInput(Number(x.limit)||0)}"></label>
-    <div class="two"><label class="f">Dia do fechamento<input name="closeDay" type="number" min="1" max="31" value="${x.closeDay}" required></label>
-    <label class="f">Dia do vencimento<input name="dueDay" type="number" min="1" max="31" value="${x.dueDay}" required></label></div>
-    <label class="f">Conta usada para pagar<select name="acc">${accOptions("a:"+x.accountId)}</select></label>
+    <label class="f">Nome<input name="name" value="${esc(keep.name??x.name)}" placeholder="Ex.: Nubank Roxinho" required maxlength="40"></label>
+    <label class="f">Limite<input name="limit" inputmode="decimal" value="${esc(keep.limit??fmtInput(Number(x.limit)||0))}"></label>
+    <div class="two"><label class="f">Dia do fechamento<input name="closeDay" type="number" min="1" max="31" value="${esc(keep.closeDay??x.closeDay)}" required></label>
+    <label class="f">Dia do vencimento<input name="dueDay" type="number" min="1" max="31" value="${esc(keep.dueDay??x.dueDay)}" required></label></div>
+    <label class="f">Conta usada para pagar<select name="acc">${accOptions(keep.acc||("a:"+x.accountId))}</select></label>
+    ${logoField(logo)}
     <button class="btn" type="submit">Salvar</button>${c?`<button class="btn danger" type="button" id="delC">Excluir cartão</button>`:""}</form>`);
+  bindLogoField(v=>{ logo=v; draw(); });
   $("#cf").onsubmit = e=>{ e.preventDefault(); const fd=new FormData(e.target); const lim=parseMoney(fd.get("limit"));
-    const obj = {name:fd.get("name").trim(), limit:isNaN(lim)?0:lim, closeDay:Math.min(31,Math.max(1,+fd.get("closeDay"))), dueDay:Math.min(31,Math.max(1,+fd.get("dueDay"))), accountId:fd.get("acc").slice(2)};
+    const obj = {name:fd.get("name").trim(), limit:isNaN(lim)?0:lim, closeDay:Math.min(31,Math.max(1,+fd.get("closeDay"))), dueDay:Math.min(31,Math.max(1,+fd.get("dueDay"))), accountId:fd.get("acc").slice(2), logo};
     if(c) Object.assign(c,obj); else { const nc={id:newId(),...obj}; S.cfg.cards.push(nc); S.cardSel=nc.id; }
     saveCfg(); closeSheet(); render(); toast("Cartão salvo."); };
   if(c) $("#delC").onclick = async ()=>{
     if(allItems().some(i=>i.cardId===c.id)) return toast("Este cartão tem compras lançadas e não pode ser excluído.");
     if(await confirmBox("Excluir cartão",`Excluir "${c.name}"?`,[{label:"Excluir",value:1,cls:"danger"}])){ S.cfg.cards=S.cfg.cards.filter(x=>x.id!==c.id); saveCfg(); render(); }
   };
+  };
+  draw();
 }
+
 function payInvoice(key){
   const c = card(S.cardSel); const total = invoiceTotal(c.id,key);
   openSheet(`<h3>Pagar fatura de ${ymLabel(key)}</h3><form id="pf">
@@ -765,7 +805,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.1.0";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1024,11 +1064,13 @@ function setupSW(){
     reg.addEventListener("updatefound", ()=>{ const w = reg.installing; w && w.addEventListener("statechange", ()=>{ if(w.state==="installed" && navigator.serviceWorker.controller) showUpdate(); }); });
   }).catch(()=>{});
   let reloading = false;
-  navigator.serviceWorker.addEventListener("controllerchange", ()=>{ if(reloading) return; reloading = true; location.reload(); });
+  // Só recarrega quando o usuário pediu a atualização (na primeira instalação o SW também assume o controle).
+  navigator.serviceWorker.addEventListener("controllerchange", ()=>{ if(!updateRequested || reloading) return; reloading = true; location.reload(); });
 }
 function checkUpdate(){ if(swReg) swReg.update().catch(()=>{}); }
 function showUpdate(){ $("#update").hidden = false; }
-function applyUpdate(){ persistLocal(true); if(swReg && swReg.waiting) swReg.waiting.postMessage("skipWaiting"); }
+let updateRequested = false;
+function applyUpdate(){ updateRequested = true; persistLocal(true); if(swReg && swReg.waiting) swReg.waiting.postMessage("skipWaiting"); }
 
 /* ============ Arquivos ============ */
 function downloadFile(name, text, type){
