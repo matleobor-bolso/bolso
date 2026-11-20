@@ -16,14 +16,18 @@
 <body>
 <div class="app">
   <header class="top">
-    <img class="logo" src="logo-128.png" alt="Bolso" width="40" height="40">
-    <h1 id="title">Bolso</h1>
-    <button class="sync" id="sync" data-act="sync" aria-label="Sincronização"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19H7a5 5 0 1 1 .9-9.92A6 6 0 0 1 19 11a4 4 0 0 1-1.5 8z"/></svg><i></i><span></span></button>
-    <div class="monthnav" id="monthnav">
-      <button id="prevM" aria-label="Mês anterior">‹</button>
-      <span id="monthLbl"></span>
-      <button id="nextM" aria-label="Próximo mês">›</button>
+    <div class="brand">
+      <img class="logo" src="logo-128.png" alt="Bolso" width="40" height="40">
+      <h1 id="title">Bolso</h1>
     </div>
+    <div class="hmid">
+      <div class="monthnav" id="monthnav">
+        <button id="prevM" aria-label="Mês anterior">‹</button>
+        <span id="monthLbl"></span>
+        <button id="nextM" aria-label="Próximo mês">›</button>
+      </div>
+    </div>
+    <button class="sync" id="sync" data-act="sync" aria-label="Sincronização"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.5 19H7a5 5 0 1 1 .9-9.92A6 6 0 0 1 19 11a4 4 0 0 1-1.5 8z"/></svg><i></i><span></span></button>
   </header>
   <div id="banner"></div>
   <main id="view"><div class="empty">Carregando seus dados…</div></main>
