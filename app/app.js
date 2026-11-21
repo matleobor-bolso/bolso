@@ -440,6 +440,10 @@ function viewMore(){
     <div class="row click" data-act="export" data-fmt="json"><div class="ic">💾</div><div class="mid"><div class="ttl">Baixar backup completo</div><div class="meta">Arquivo com todos os dados</div></div><div class="mut">›</div></div>
     <div class="row click" data-act="import"><div class="ic">📥</div><div class="mid"><div class="ttl">Restaurar backup</div><div class="meta">Substitui os dados atuais</div></div><div class="mut">›</div></div>
   </div>`;
+  h += `<div class="sectiontitle">Aplicativo</div><div class="list">
+    <div class="row click" data-act="checkUpd"><div class="ic">🔄</div><div class="mid"><div class="ttl">Procurar atualização</div><div class="meta">Versão instalada: v${APP_VERSION}</div></div><div class="mut">›</div></div>
+    <div class="row click" data-act="forceUpd"><div class="ic">🧹</div><div class="mid"><div class="ttl">Forçar atualização</div><div class="meta">Use se o app não sair de uma versão antiga</div></div><div class="mut">›</div></div>
+  </div>`;
   h += `<p class="mut" style="font-size:12px;text-align:center;margin-top:18px">Bolso v${APP_VERSION} · seus dados ficam neste aparelho e no seu Google Drive.</p>`;
   return h;
 }
@@ -883,7 +887,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.2.2";
+const APP_VERSION = "1.2.3";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1143,16 +1147,38 @@ function demoData(){
 let swReg = null;
 function setupSW(){
   if(!("serviceWorker" in navigator)) return;
-  navigator.serviceWorker.register("./sw.js").then(reg=>{
+  navigator.serviceWorker.register("./sw.js", { updateViaCache:"none" }).then(reg=>{
     swReg = reg;
+    const track = w => { if(!w) return; if(w.state==="installed" && navigator.serviceWorker.controller) showUpdate(); w.addEventListener("statechange", ()=>{ if(w.state==="installed" && navigator.serviceWorker.controller) showUpdate(); }); };
     if(reg.waiting && navigator.serviceWorker.controller) showUpdate();
-    reg.addEventListener("updatefound", ()=>{ const w = reg.installing; w && w.addEventListener("statechange", ()=>{ if(w.state==="installed" && navigator.serviceWorker.controller) showUpdate(); }); });
+    track(reg.installing); // uma atualização pode já estar baixando quando o app abre
+    reg.addEventListener("updatefound", ()=>track(reg.installing));
+    reg.update().catch(()=>{});
+    setInterval(()=>{ if(!document.hidden) reg.update().catch(()=>{}); }, 30*60*1000);
   }).catch(()=>{});
   let reloading = false;
   // Só recarrega quando o usuário pediu a atualização (na primeira instalação o SW também assume o controle).
   navigator.serviceWorker.addEventListener("controllerchange", ()=>{ if(!updateRequested || reloading) return; reloading = true; location.reload(); });
 }
 function checkUpdate(){ if(swReg) swReg.update().catch(()=>{}); }
+async function manualUpdateCheck(){
+  if(!swReg && "serviceWorker" in navigator){ try{ swReg = await navigator.serviceWorker.getRegistration() || null; }catch(e){} }
+  if(!swReg){ return toast("Atualizações indisponíveis neste navegador."); }
+  toast("Procurando atualização…");
+  try{ await swReg.update(); }catch(e){ return toast(navigator.onLine ? "Não foi possível verificar agora." : "Sem internet."); }
+  if(swReg.waiting){ showUpdate(); return toast("Nova versão pronta. Toque em Atualizar no topo."); }
+  if(swReg.installing){ toast("Baixando a nova versão…"); return; }
+  toast(`Você já está na versão mais recente (v${APP_VERSION}).`);
+}
+async function forceUpdate(){
+  if(!await confirmBox("Forçar atualização","O app vai baixar de novo a versão mais recente. Seus dados e o bloqueio por digital continuam como estão.",[{label:"Forçar atualização",value:1}])) return;
+  try{
+    await persistLocal(true);
+    const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r=>r.unregister()));
+    const keys = await caches.keys(); await Promise.all(keys.filter(k=>k.startsWith("bolso-")).map(k=>caches.delete(k)));
+  }catch(e){}
+  location.reload();
+}
 function showUpdate(){ $("#update").hidden = false; }
 let updateRequested = false;
 function applyUpdate(){ updateRequested = true; persistLocal(true); if(swReg && swReg.waiting) swReg.waiting.postMessage("skipWaiting"); }
@@ -1175,6 +1201,8 @@ document.addEventListener("click", e=>{
   else if(a==="filter"){ S.txFilter=t.dataset.f; render(); }
   else if(a==="filters") filtersSheet();
   else if(a==="togglePend") togglePend();
+  else if(a==="checkUpd") manualUpdateCheck();
+  else if(a==="forceUpd") forceUpdate();
   else if(a==="reorder") reorderSheet(t.dataset.what);
   else if(a==="invOpen") invSheet(id);
   else if(a==="updBal") updBalSheet(id||null);
