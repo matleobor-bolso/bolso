@@ -599,9 +599,12 @@ function reorderSheet(what){
 }
 
 /* ---- Seletor de conta/cartão com os mesmos ícones/logos da tela inicial ---- */
-function srcItems(withCards){
+// withCards: inclui cartões · withInv: inclui contas de investimento (só transferências: aporte/resgate)
+// keepKey: mantém visível a opção já usada por um lançamento existente, mesmo que seja de investimento
+function srcItems(withCards, withInv, keepKey){
   const accs = S.cfg.accounts.filter(a=>!a.archived);
-  const it = [...accs.filter(a=>accKind(a)==="dia"), ...accs.filter(a=>accKind(a)==="inv")].map(a=>({k:"a:"+a.id, name:a.name, icon:accIcSm(a)}));
+  const invs = accs.filter(a=>accKind(a)==="inv" && (withInv || keepKey==="a:"+a.id));
+  const it = [...accs.filter(a=>accKind(a)==="dia"), ...invs].map(a=>({k:"a:"+a.id, name:a.name, icon:accIcSm(a)}));
   if(withCards) it.splice(accs.filter(a=>accKind(a)==="dia").length, 0, ...S.cfg.cards.filter(c=>!c.archived).map(c=>({k:"c:"+c.id, name:c.name, icon:cardIcSm(c)})));
   return it;
 }
@@ -652,8 +655,8 @@ function txForm(existing, preset){
         <label class="f">Data<input type="date" name="date" value="${keep.date||it.date}" required></label>
         ${isTr?"":`<label class="f">Categoria<select name="cat">${catOptions(type,it.catId)}</select></label>`}
       </div>
-      ${isTr?`<div class="f"><span>De</span>${chipPicker("src", srcItems(false), src.startsWith("c:")?"a:"+S.cfg.accounts[0].id:src)}</div><div class="f"><span>Para</span>${chipPicker("to", srcItems(false), toV)}</div>`
-            :`<div class="f"><span>${type==="exp"?"Pago com":"Recebido em"}</span>${chipPicker("src", srcItems(type==="exp"), src)}</div>`}
+      ${isTr?`<div class="f"><span>De</span>${chipPicker("src", srcItems(false, true), src.startsWith("c:")?"a:"+firstDia.id:src)}</div><div class="f"><span>Para</span>${chipPicker("to", srcItems(false, true), toV)}</div>`
+            :`<div class="f"><span>${type==="exp"?"Pago com":"Recebido em"}</span>${chipPicker("src", srcItems(type==="exp", false, existing ? src : null), src)}</div>`}
       <div class="switch" id="paidRow"><span>${type==="inc"?"Recebido":"Pago"}</span><input type="checkbox" name="paid" ${it.paid?"checked":""}></div>
       <button type="button" class="linkbtn moreopt" id="moreOpt" ${showMore?'style="display:none"':""}>+ Repetir, parcelar ou observação</button>
       <div id="moreBox" ${showMore?"":'style="display:none"'}>
@@ -791,7 +794,7 @@ function cardForm(c){
     <label class="f">Limite<input name="limit" inputmode="decimal" value="${esc(keep.limit??fmtInput(Number(x.limit)||0))}"></label>
     <div class="two"><label class="f">Dia do fechamento<input name="closeDay" type="number" min="1" max="31" value="${esc(keep.closeDay??x.closeDay)}" required></label>
     <label class="f">Dia do vencimento<input name="dueDay" type="number" min="1" max="31" value="${esc(keep.dueDay??x.dueDay)}" required></label></div>
-    <div class="f"><span>Conta usada para pagar</span>${chipPicker("acc", srcItems(false), keep.acc||("a:"+x.accountId))}</div>
+    <div class="f"><span>Conta usada para pagar</span>${chipPicker("acc", srcItems(false, false, c ? "a:"+x.accountId : null), keep.acc||("a:"+x.accountId))}</div>
     ${logoField(logo)}
     <button class="btn" type="submit">Salvar</button>${c?`<button class="btn danger" type="button" id="delC">Excluir cartão</button>`:""}</form>`);
   bindLogoField(v=>{ logo=v; draw(); });
@@ -880,7 +883,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.2.1";
+const APP_VERSION = "1.2.2";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
