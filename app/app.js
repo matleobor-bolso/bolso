@@ -880,7 +880,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.2.0";
+const APP_VERSION = "1.2.1";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1079,7 +1079,13 @@ async function disableLock(){
   try{ localStorage.removeItem(LOCK_KEY); }catch(e){} render(); toast("Bloqueio desativado.");
 }
 let locked = false, hiddenAt = 0;
-function showLock(){ locked = true; document.body.classList.add("locked"); $("#lockMsg").textContent = ""; }
+// Lembra, só nesta aba e por pouco tempo, que o app estava desbloqueado.
+// Assim, puxar para atualizar (recarregar a página) não pede a digital de novo;
+// fechar o app ou ficar fora mais que LOCK_AFTER_MS continua bloqueando.
+const UNLOCK_KEY = "bolso-unlocked-at";
+function markUnlocked(){ try{ sessionStorage.setItem(UNLOCK_KEY, String(Date.now())); }catch(e){} }
+function recentlyUnlocked(){ try{ const t = Number(sessionStorage.getItem(UNLOCK_KEY) || 0); return t > 0 && Date.now() - t < LOCK_AFTER_MS; }catch(e){ return false; } }
+function showLock(){ locked = true; try{ sessionStorage.removeItem(UNLOCK_KEY); }catch(e){} document.body.classList.add("locked"); $("#lockMsg").textContent = ""; }
 async function unlock(){
   const info = lockInfo(); if(!info){ hideLock(); return; }
   try{
@@ -1087,9 +1093,9 @@ async function unlock(){
     hideLock();
   }catch(e){ $("#lockMsg").textContent = "Não foi possível confirmar. Tente de novo."; }
 }
-function hideLock(){ locked = false; document.body.classList.remove("locked"); render(); renderSync(); if(hasToken()) syncNow(); }
+function hideLock(){ locked = false; markUnlocked(); document.body.classList.remove("locked"); render(); renderSync(); if(hasToken()) syncNow(); }
 document.addEventListener("visibilitychange", ()=>{
-  if(document.hidden){ hiddenAt = Date.now(); persistLocal(true); return; }
+  if(document.hidden){ hiddenAt = Date.now(); if(!locked) markUnlocked(); persistLocal(true); return; }
   if(lockEnabled() && !locked && hiddenAt && Date.now()-hiddenAt > LOCK_AFTER_MS){ showLock(); return; }
   if(!locked && hasToken()) syncNow();
   checkUpdate();
@@ -1097,7 +1103,7 @@ document.addEventListener("visibilitychange", ()=>{
 window.addEventListener("online", ()=>{ renderSync(); scheduleSync(); });
 window.addEventListener("offline", renderSync);
 let resizeT; window.addEventListener("resize", ()=>{ clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
-window.addEventListener("pagehide", ()=>persistLocal(true));
+window.addEventListener("pagehide", ()=>{ if(!locked) markUnlocked(); persistLocal(true); });
 
 /* ============ Boas-vindas (sem dados ainda) ============ */
 function viewWelcome(){
@@ -1207,7 +1213,7 @@ $("#nextM").onclick = ()=>{ S.month=ymAdd(S.month,1); if(S.tab==="cards") S.card
 
 
 /* ============ Início ============ */
-if(lockEnabled()) showLock();
+if(lockEnabled() && !recentlyUnlocked()) showLock();
 initStore().then(()=>{ if(lockEnabled() && locked) unlock(); });
 initGoogle();
 setupSW();
