@@ -11,11 +11,10 @@ concurrency:
   group: pages
   cancel-in-progress: false
 jobs:
-  publicar:
+  # Envio e publicação ficam em jobs separados: no mesmo job, o deploy-pages às vezes
+  # procura o pacote frações de segundo depois do envio e não o encontra.
+  preparar:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
       - name: Verificações
@@ -24,5 +23,12 @@ jobs:
       - uses: actions/upload-pages-artifact@v5
         with:
           path: app
+  publicar:
+    needs: preparar
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v5
