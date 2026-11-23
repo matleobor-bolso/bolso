@@ -291,21 +291,32 @@ function ring(p, pace, cls, size){
     <text x="32" y="37" text-anchor="middle" font-size="15" font-weight="700" fill="var(--text)">${Math.round(p*100)}</text></svg>`;
 }
 
+/* Limites: por categoria (cfg.budgets) e combinados (cfg.budgetGroups: [{id,name,catIds,limit}]).
+   Uma categoria que está num limite combinado não tem limite individual. */
+function budgetGroups(){ return (S.cfg.budgetGroups||[]).map(g=>({...g, catIds:(g.catIds||[]).filter(id=>cat(id))})).filter(g=>g.catIds.length); }
+function groupName(g){ return g.name || g.catIds.map(id=>cat(id)?.name).filter(Boolean).join(" + "); }
+function groupOfCat(catId){ return budgetGroups().find(g=>g.catIds.includes(catId)); }
+function budgetEntries(){
+  const out = budgetGroups().filter(g=>g.limit>0).map(g=>({key:"g:"+g.id, group:true, name:groupName(g), icon:cat(g.catIds[0])?.icon||"🧩", catIds:g.catIds, lim:g.limit}));
+  for(const [id,v] of Object.entries(S.cfg.budgets||{})) if(v>0 && cat(id) && !groupOfCat(id)) out.push({key:id, group:false, name:cat(id).name, icon:cat(id).icon, catIds:[id], lim:v});
+  return out;
+}
 function budgetView(ym){
-  const spent = spentByCat(ym); const bud = Object.entries(S.cfg.budgets).filter(([id,v])=>v>0 && cat(id));
+  const spent = spentByCat(ym); const bud = budgetEntries().map(e=>[e, e.catIds.reduce((s,id)=>s+(spent[id]||0),0)]);
   if(!bud.length) return `<div class="mut" style="font-size:14px">Defina um limite mensal por categoria para acompanhar seus gastos.</div><button class="btn sec" data-act="budgets" style="margin-top:10px">Definir limites</button>`;
   const pace = monthPace(ym);
-  const totB = bud.reduce((s,[,v])=>s+v,0), totS = bud.reduce((s,[id])=>s+(spent[id]||0),0);
+  const totB = bud.reduce((s,[e])=>s+e.lim,0), totS = bud.reduce((s,[,sp])=>s+sp,0);
   const left = totB - totS; const t=todayStr();
   let tip = "";
   if(ymOf(t)===ym && left>0){ const [y,m]=ym.split("-").map(Number); const dl = daysIn(y,m) - (+t.slice(8)) + 1; tip = ` · <b>${money(left/dl)}/dia</b> até o fim do mês`; }
   let h = `<div class="budsum"><span class="${left<0?"exp":""}">${left>=0?`<b>${money(left)}</b> disponíveis`:`<b>${money(-left)}</b> acima do total`}</span><span class="mut"> de ${money(totB)}${tip}</span>
     <div class="pacebar"><i class="${totS>totB?"over":(totS/totB>pace+0.05&&pace<1?"warn":"")}" style="width:${Math.min(100,totS/totB*100)}%"></i>${pace>0&&pace<1?`<s style="left:${pace*100}%"></s>`:""}</div></div>`;
-  const rows = bud.map(([id,lim])=>{ const s=spent[id]||0; return {c:cat(id), id, lim, s, p:s/lim}; }).sort((a,b)=>b.p-a.p);
+  const rows = bud.map(([e,s])=>({e, lim:e.lim, s, p:s/e.lim})).sort((a,b)=>b.p-a.p);
   h += rows.map(r=>{
     const st = r.p>1 ? {cls:"over",t:"estourou",tc:"exp"} : (pace<1 && r.p > pace+0.05 ? {cls:"warn",t:"acima do ritmo",tc:"warn"} : {cls:"",t:"no ritmo",tc:"mut"});
     const disp = r.lim - r.s;
-    return `<div class="row click brow" data-act="catfilter" data-id="${r.id}">${ring(r.p,pace,st.cls,44)}<div class="mid"><div class="ttl">${r.c.icon} ${esc(r.c.name)}</div><div class="meta">${disp>=0?`Disponível <b class="t1">${money(disp)}</b>`:`Passou <b class="exp">${money(-disp)}</b>`} de ${money(r.lim)}</div></div><div class="bst ${st.tc}">${st.cls==="over"?"⚠ ":st.cls==="warn"?"▲ ":""}${st.t}</div></div>`;
+    const sub = r.e.group ? `<div class="meta wrap">${r.e.catIds.map(id=>`${cat(id).icon} ${esc(cat(id).name)} ${money(spent[id]||0)}`).join(" · ")}</div>` : "";
+    return `<div class="row click brow" data-act="catfilter" ${r.e.group?`data-ids="${r.e.catIds.join(",")}"`:`data-id="${r.e.catIds[0]}"`}>${ring(r.p,pace,st.cls,44)}<div class="mid"><div class="ttl">${r.e.icon} ${esc(r.e.name)}${r.e.group?' <span class="badge">combinado</span>':""}</div>${sub}<div class="meta">${disp>=0?`Disponível <b class="t1">${money(disp)}</b>`:`Passou <b class="exp">${money(-disp)}</b>`} de ${money(r.lim)}</div></div><div class="bst ${st.tc}">${st.cls==="over"?"⚠ ":st.cls==="warn"?"▲ ":""}${st.t}</div></div>`;
   }).join("");
   if(pace>0 && pace<1) h += `<div class="mut" style="font-size:11px;margin-top:8px">O número no anel é o % usado; o tracinho marca onde o gasto deveria estar hoje.</div>`;
   return h;
@@ -930,17 +941,57 @@ function catForm(c, kind){
     if(c) Object.assign(c,obj); else S.cfg.categories.push({id:newId(),kind:x.kind,...obj}); saveCfg(); render(); manageCats(x.kind); };
   if(c) $("#delK").onclick = async ()=>{
     if(allItems().some(i=>i.catId===c.id)) return toast("Categoria em uso. Use “Arquivar”.");
-    if(await confirmBox("Excluir categoria",`Excluir "${c.name}"?`,[{label:"Excluir",value:1,cls:"danger"}])){ S.cfg.categories=S.cfg.categories.filter(k=>k.id!==c.id); delete S.cfg.budgets[c.id]; saveCfg(); render(); manageCats(c.kind); }
+    if(await confirmBox("Excluir categoria",`Excluir "${c.name}"?`,[{label:"Excluir",value:1,cls:"danger"}])){ S.cfg.categories=S.cfg.categories.filter(k=>k.id!==c.id); delete S.cfg.budgets[c.id]; (S.cfg.budgetGroups||[]).forEach(x=>{ x.catIds=(x.catIds||[]).filter(id=>id!==c.id); }); saveCfg(); render(); manageCats(c.kind); }
   };
 }
 
 /* ---- Orçamentos ---- */
 function budgetsForm(){
   const spent = spentByCat(S.month);
-  openSheet(`<h3>Orçamentos mensais</h3><p class="t2" style="margin-top:-6px;font-size:14px">Limite por categoria. Deixe em branco para não acompanhar. Gasto em ${ymLabel(S.month)} ao lado.</p><form id="bf">
-  ${S.cfg.categories.filter(c=>c.kind==="exp" && !c.archived).map(c=>`<label class="f" style="display:flex;align-items:center;gap:10px"><span style="flex:1;font-size:14px;color:var(--text)">${c.icon} ${esc(c.name)}<br><span class="mut" style="font-size:12px">gasto ${money(spent[c.id]||0)}</span></span><input style="width:130px;margin:0" name="${c.id}" inputmode="decimal" placeholder="—" value="${S.cfg.budgets[c.id]?fmtInput(S.cfg.budgets[c.id]):""}"></label>`).join("")}
-  <button class="btn" type="submit">Salvar orçamentos</button></form>`);
-  $("#bf").onsubmit = e=>{ e.preventDefault(); const fd=new FormData(e.target); const b={}; for(const [k,v] of fd.entries()){ const n=parseMoney(v); if(n>0) b[k]=n; } S.cfg.budgets=b; saveCfg(); closeSheet(); render(); toast("Orçamentos salvos."); };
+  const groups = budgetGroups();
+  const cats = S.cfg.categories.filter(c=>c.kind==="exp" && !c.archived);
+  openSheet(`<h3>Limites mensais</h3><p class="t2" style="margin-top:-6px;font-size:14px">Deixe em branco o que não quiser acompanhar. Gasto em ${ymLabel(S.month)} ao lado.</p><form id="bf">
+  <div class="pgh"><span>Limites combinados</span><button type="button" class="linkbtn" data-grp-new>+ Combinar categorias</button></div>
+  ${groups.length ? groups.map(g=>`<div class="f budrow"><span class="bname">${cat(g.catIds[0])?.icon||"🧩"} ${esc(groupName(g))}<br><span class="mut" style="font-size:12px">${g.catIds.map(id=>esc(cat(id).name)).join(" + ")} · gasto ${money(g.catIds.reduce((s,id)=>s+(spent[id]||0),0))}</span><br><button type="button" class="linkbtn" data-grp-edit="${g.id}">Editar</button></span><input name="g:${g.id}" inputmode="decimal" placeholder="—" value="${g.limit?fmtInput(g.limit):""}"></div>`).join("") : `<p class="mut" style="font-size:13px;margin:0 0 8px">Some duas ou mais categorias num limite só, por exemplo Saúde + Cuidados pessoais. Elas continuam separadas nos lançamentos e relatórios.</p>`}
+  <div class="pgh"><span>Por categoria</span></div>
+  ${cats.map(c=>{ const g = groupOfCat(c.id); return `<div class="f budrow"><span class="bname">${c.icon} ${esc(c.name)}<br><span class="mut" style="font-size:12px">${g?`no limite “${esc(groupName(g))}”`:`gasto ${money(spent[c.id]||0)}`}</span></span>${g?`<span class="mut budin">—</span>`:`<input name="${c.id}" inputmode="decimal" placeholder="—" value="${S.cfg.budgets[c.id]?fmtInput(S.cfg.budgets[c.id]):""}">`}</div>`; }).join("")}
+  <button class="btn" type="submit">Salvar limites</button></form>`);
+  const collect = ()=>{ const fd = new FormData($("#bf")); const b = {}; const gl = {};
+    for(const [k,v] of fd.entries()){ const n = parseMoney(v); if(k.startsWith("g:")) gl[k.slice(2)] = n>0 ? n : 0; else if(n>0) b[k] = n; }
+    return {b, gl}; };
+  const apply = ({b, gl})=>{ S.cfg.budgets = b; (S.cfg.budgetGroups||[]).forEach(g=>{ if(g.id in gl) g.limit = gl[g.id]; }); };
+  $("#bf").onsubmit = e=>{ e.preventDefault(); apply(collect()); saveCfg(); closeSheet(); render(); toast("Limites salvos."); };
+  // abrir o editor de grupo guarda antes o que já foi digitado
+  $("#sheet").querySelector("[data-grp-new]").onclick = ()=>{ apply(collect()); groupForm(null); };
+  $("#sheet").querySelectorAll("[data-grp-edit]").forEach(btn=>btn.onclick=()=>{ apply(collect()); groupForm((S.cfg.budgetGroups||[]).find(g=>g.id===btn.dataset.grpEdit)); });
+}
+function groupForm(g){
+  const others = new Set(budgetGroups().filter(x=>!g || x.id!==g.id).flatMap(x=>x.catIds));
+  const cats = S.cfg.categories.filter(c=>c.kind==="exp" && !c.archived && !others.has(c.id));
+  const sel = new Set(g ? g.catIds : []);
+  const draw = ()=>{
+    const f0 = $("#gf"); const keep = f0 ? {name:f0.gname.value, limit:f0.glimit.value} : {};
+    openSheet(`<h3>${g?"Editar limite combinado":"Combinar categorias"}</h3><form id="gf">
+      <div class="f"><span>Categorias (escolha duas ou mais)</span><div class="pills" style="margin-top:6px">${cats.map(c=>`<button type="button" class="pill ${sel.has(c.id)?"on":""}" data-c="${c.id}">${c.icon} ${esc(c.name)}</button>`).join("")}</div></div>
+      <label class="f">Nome <span class="mut">(opcional)</span><input name="gname" maxlength="40" placeholder="${esc([...sel].map(id=>cat(id)?.name).join(" + ") || "Ex.: Saúde e cuidados")}" value="${esc(keep.name??(g?.name||""))}"></label>
+      <label class="f">Limite mensal<input name="glimit" inputmode="decimal" placeholder="0,00" value="${esc(keep.limit??(g&&g.limit?fmtInput(g.limit):""))}"></label>
+      <button class="btn" type="submit">Salvar</button>
+      ${g?`<button class="btn danger" type="button" id="gDel">Desfazer combinação</button>`:""}
+      <button class="btn sec" type="button" id="gBack">Voltar</button></form>`);
+    $("#sheet").querySelectorAll("[data-c]").forEach(b=>b.onclick=()=>{ sel.has(b.dataset.c) ? sel.delete(b.dataset.c) : sel.add(b.dataset.c); draw(); });
+    $("#gBack").onclick = budgetsForm;
+    if(g) $("#gDel").onclick = async ()=>{ if(!await confirmBox("Desfazer combinação",`As categorias voltam a ficar sem limite próprio.`,[{label:"Desfazer",value:1,cls:"danger"}])) return budgetsForm(); S.cfg.budgetGroups = (S.cfg.budgetGroups||[]).filter(x=>x.id!==g.id); saveCfg(); render(); budgetsForm(); };
+    $("#gf").onsubmit = e=>{ e.preventDefault();
+      if(sel.size < 2) return toast("Escolha pelo menos duas categorias.");
+      const lim = parseMoney($("#gf").glimit.value); const ids = [...sel];
+      const obj = {name:$("#gf").gname.value.trim(), catIds:ids, limit: lim>0 ? lim : 0};
+      S.cfg.budgetGroups = S.cfg.budgetGroups || [];
+      if(g) Object.assign(S.cfg.budgetGroups.find(x=>x.id===g.id), obj); else S.cfg.budgetGroups.push({id:newId(), ...obj});
+      ids.forEach(id=>{ delete S.cfg.budgets[id]; }); // a categoria passa a contar só no limite combinado
+      saveCfg(); render(); budgetsForm(); toast("Limite combinado salvo.");
+    };
+  };
+  draw();
 }
 
 /* ---- Exportar / restaurar ---- */
