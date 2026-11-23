@@ -718,7 +718,7 @@ function txForm(existing, preset){
     const dateIn = $("#txf").date; dateIn.onchange = ()=>{ if(!existing) $("#txf").paid.checked = dateIn.value <= todayStr(); };
     $("#txf").onsubmit = e=>{ e.preventDefault(); saveTx(existing, type, new FormData(e.target)); };
     if(existing) $("#delTx").onclick = ()=>deleteTx(existing);
-    if(!existing && !keep.amount) setTimeout(()=>$("#txf").amount.focus(),50);
+    if(!existing && !keep.amount) setTimeout(()=>{ const f=$("#txf"); if(f && !f.contains(document.activeElement)) f.amount.focus(); },50); // não rouba o foco de quem já começou a digitar
   };
   draw();
 }
