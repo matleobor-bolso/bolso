@@ -653,7 +653,7 @@ function srcItems(withCards, withInv, keepKey){
 }
 function chipPicker(name, items, sel){
   if(!items.some(i=>i.k===sel) && items.length) sel = items[0].k;
-  const pill = i=>`<button type="button" class="pill ${i.k===sel?"on":""}" data-pk="${i.k}" role="radio" aria-checked="${i.k===sel}">${i.icon} ${esc(i.name)}${i.k.startsWith("c:")?` <span class="pk-tag">crédito</span>`:""}</button>`;
+  const pill = i=>`<button type="button" class="pill ${i.k===sel?"on":""}" data-pk="${i.k}" role="radio" aria-checked="${i.k===sel}">${i.icon} ${esc(i.name)}</button>`;
   // separa por grupo (Contas / Cartões de crédito / Investimentos) quando há mais de um, para não confundir nomes iguais
   const grps = [...new Set(items.map(i=>i.grp||""))];
   const body = grps.length > 1
