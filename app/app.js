@@ -426,7 +426,9 @@ function viewCards(){
   if(!S.cfg.cards.length) return `<div class="card"><div class="empty">Você ainda não cadastrou cartões de crédito.</div><button class="btn" data-act="newCard">Adicionar cartão</button></div>`;
   if(!S.cardSel || !card(S.cardSel)) S.cardSel = S.cfg.cards[0].id;
   const c = card(S.cardSel); const key = S.month;
-  let h = `<div class="cardsel">${S.cfg.cards.map(x=>`<button class="ccard ${x.id===c.id?"on":""}" data-act="selcard" data-id="${x.id}"><b>${cardIcSm(x)} ${esc(x.name)}</b><small>usado ${money(cardUsed(x.id))}${x.limit?` de ${money(x.limit)}`:""}</small></button>`).join("")}<button class="ccard" data-act="newCard" style="min-width:90px;text-align:center"><b>+</b><small>Novo</small></button></div>`;
+  // todos os cartões numa lista: limite usado de cada um à vista; tocar escolhe a fatura mostrada abaixo
+  let h = `<div class="card cardlist">${S.cfg.cards.map(x=>{ const used = cardUsed(x.id); const p = x.limit ? Math.min(1, used/x.limit) : 0; const fat = invoiceTotal(x.id,key);
+    return `<button type="button" class="crow ${x.id===c.id?"on":""}" data-act="selcard" data-id="${x.id}"><span class="ic">${cardIc(x)}</span><span class="cmid"><span class="ctop"><b>${esc(x.name)}</b><span class="cfat"><small>fatura</small> ${money(fat)}</span></span>${x.limit?`<span class="cbar"><i class="${p>=.9?"hi":""}" style="width:${(p*100).toFixed(1)}%"></i></span><span class="clim">${money(Math.max(0,x.limit-used))} livres de ${money(x.limit)}</span>`:`<span class="clim">usado ${money(used)} · sem limite cadastrado</span>`}</span></button>`; }).join("")}</div>`;
   const items = invoiceItems(c.id,key); const total = invoiceTotal(c.id,key); const st = invoiceStatus(c.id,key); const d = invoiceDates(key,c);
   const paidInfo = S.cfg.invoicePaid[c.id+"|"+key];
   h += `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><div><div class="t2" style="font-size:13px">Fatura de ${ymLabel(key)}</div><div style="font-size:26px;font-weight:700">${money(total)}</div></div><span class="badge ${st.s==="paga"?"paid":st.s==="fechada"?"closed":""}">${st.label}</span></div>
