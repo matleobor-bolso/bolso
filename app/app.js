@@ -102,25 +102,26 @@ function lastRend(accId){ let d=null; for(const i of allItems()) if(i.type==="re
 let dataRev = 0, effCache = null;
 const CARD_MODES = [["compra","Compra"],["parcela","Parcela"],["fatura","Fatura"]];
 function cardDateMode(){ const m = S.cfg && S.cfg.cardDateMode; return CARD_MODES.some(([k])=>k===m) ? m : "compra"; }
-function effDate(i){
+function effDate(i, mode){
   if(!i.cardId) return i.date;
-  const mode = cardDateMode();
   if(mode==="parcela") return i.date;
   if(mode==="fatura"){ const c = card(i.cardId); return c ? invoiceDates(invoiceKey(i.date, c, i.inv), c).due : i.date; }
   const m = /^(\d+)\/(\d+)$/.exec(i.inst || "");
   return (m && +m[1] > 1) ? dateAddMonths(i.date, -(+m[1]-1)) : i.date;
 }
-function effItems(ym){
-  const mode = cardDateMode();
+/* A data do cartão escolhida em Relatórios vale só para os relatórios.
+   Limites e Entrou/Saiu usam sempre a data da parcela (como o Organizze). */
+function effItems(ym, mode="parcela"){
+  if(mode==="parcela") return monthItems(ym).filter(i=>i.type==="exp" || i.type==="inc");
   if(!effCache || effCache.rev!==dataRev || effCache.mode!==mode || effCache.months!==S.months){
     const map = {};
-    for(const k in S.months) for(const i of S.months[k]){ if(i.type!=="exp" && i.type!=="inc") continue; const e = ymOf(effDate(i)); (map[e] ||= []).push(i); }
+    for(const k in S.months) for(const i of S.months[k]){ if(i.type!=="exp" && i.type!=="inc") continue; const e = ymOf(effDate(i, mode)); (map[e] ||= []).push(i); }
     effCache = { rev:dataRev, mode, months:S.months, map };
   }
   return effCache.map[ym] || [];
 }
-function monthSums(ym){ let inc=0,exp=0; for(const i of effItems(ym)){ if(i.type==="inc") inc+=i.amount; else if(i.type==="exp") exp+=i.amount; } return {inc,exp}; }
-function spentByCat(ym){ const m={}; for(const i of effItems(ym)) if(i.type==="exp"){ m[i.catId]=(m[i.catId]||0)+i.amount; } return m; }
+function monthSums(ym, mode){ let inc=0,exp=0; for(const i of effItems(ym, mode)){ if(i.type==="inc") inc+=i.amount; else if(i.type==="exp") exp+=i.amount; } return {inc,exp}; }
+function spentByCat(ym, mode){ const m={}; for(const i of effItems(ym, mode)) if(i.type==="exp"){ m[i.catId]=(m[i.catId]||0)+i.amount; } return m; }
 function cardModeLabel(){ return {compra:"data da compra", parcela:"data da parcela", fatura:"data da fatura"}[cardDateMode()]; }
 function endOfMonth(ym){ const [y,m]=ym.split("-").map(Number); return `${ym}-${pad(daysIn(y,m))}`; }
 
@@ -315,7 +316,7 @@ function budgetView(ym){
   h += rows.map(r=>{
     const st = r.p>1 ? {cls:"over",t:"estourou",tc:"exp"} : (pace<1 && r.p > pace+0.05 ? {cls:"warn",t:"acima do ritmo",tc:"warn"} : {cls:"",t:"no ritmo",tc:"mut"});
     const disp = r.lim - r.s;
-    const sub = r.e.group ? `<div class="meta wrap">${r.e.catIds.map(id=>`${cat(id).icon} ${esc(cat(id).name)} ${money(spent[id]||0)}`).join(" · ")}</div>` : "";
+    const sub = r.e.group ? `<div class="meta wrap">${r.e.catIds.map(id=>`${esc(cat(id).name)} ${money(spent[id]||0)}`).join(" · ")}</div>` : "";
     return `<div class="row click brow" data-act="catfilter" ${r.e.group?`data-ids="${r.e.catIds.join(",")}"`:`data-id="${r.e.catIds[0]}"`}>${ring(r.p,pace,st.cls,44)}<div class="mid"><div class="ttl">${r.e.icon} ${esc(r.e.name)}${r.e.group?' <span class="badge">combinado</span>':""}</div>${sub}<div class="meta">${disp>=0?`Disponível <b class="t1">${money(disp)}</b>`:`Passou <b class="exp">${money(-disp)}</b>`} de ${money(r.lim)}</div></div><div class="bst ${st.tc}">${st.cls==="over"?"⚠ ":st.cls==="warn"?"▲ ":""}${st.t}</div></div>`;
   }).join("");
   if(pace>0 && pace<1) h += `<div class="mut" style="font-size:11px;margin-top:8px">O número no anel é o % usado; o tracinho marca onde o gasto deveria estar hoje.</div>`;
@@ -338,7 +339,7 @@ function squarify(items, x, y, w, h){
   return out;
   function worst(row, side){ const s=row.reduce((a,r)=>a+r.a,0); const mx=Math.max(...row.map(r=>r.a)), mn=Math.min(...row.map(r=>r.a)); return Math.max(side*side*mx/(s*s), s*s/(side*side*mn)); }
 }
-function catRows(ym){ const m = spentByCat(ym); return Object.entries(m).map(([id,v])=>({id, c:cat(id), v})).filter(r=>r.v>0).sort((a,b)=>b.v-a.v); }
+function catRows(ym){ const m = spentByCat(ym, cardDateMode()); return Object.entries(m).map(([id,v])=>({id, c:cat(id), v})).filter(r=>r.v>0).sort((a,b)=>b.v-a.v); }
 function treemap(ym, limit){
   let rows = catRows(ym);
   if(!rows.length) return `<div class="mut" style="font-size:14px">Nenhuma despesa em ${ymLabel(ym)}.</div>`;
@@ -445,7 +446,7 @@ function viewReports(){
   h += `<div class="card"><h2>Despesas por categoria</h2>${treemap(ym,10)}${catList(ym)}</div>`;
   // 6 meses
   const months = []; for(let k=5;k>=0;k--) months.push(ymAdd(ym,-k));
-  const data = months.map(m=>({m,...monthSums(m)}));
+  const data = months.map(m=>({m,...monthSums(m, cardDateMode())}));
   h += `<div class="card"><h2>Receitas × despesas (6 meses) <button class="linkbtn" data-act="toggleTable">${S.reportTable?"Ver gráfico":"Ver tabela"}</button></h2>`;
   if(S.reportTable){
     h += `<table class="t"><tr><th>Mês</th><th>Receitas</th><th>Despesas</th><th>Saldo</th></tr>${data.map(d=>`<tr><td>${MES3[+d.m.slice(5)-1]}/${d.m.slice(2,4)}</td><td>${money(d.inc)}</td><td>${money(d.exp)}</td><td class="${d.inc-d.exp>=0?"inc":"exp"}">${money(d.inc-d.exp)}</td></tr>`).join("")}</table>`;
@@ -612,8 +613,7 @@ function togglePend(){ try{ localStorage.setItem("bolso-pend-open", pendOpen() ?
 /* ---- Limites (aba própria) ---- */
 function viewLimits(){
   const ym = S.month;
-  return `<div class="card"><h2>Limites de ${ymLabel(ym)} <button class="linkbtn" data-act="budgets">Editar</button></h2>${budgetView(ym)}</div>
-  <p class="mut" style="font-size:12px;text-align:center">Gastos do cartão contados pela ${cardModeLabel()}. Dá para mudar em Relatórios.</p>`;
+  return `<div class="card"><h2>Limites de ${ymLabel(ym)} <button class="linkbtn" data-act="budgets">Editar</button></h2>${budgetView(ym)}</div>`;
 }
 
 /* ---- Reordenar contas e cartões ---- */
@@ -954,7 +954,7 @@ function budgetsForm(){
   <div class="pgh"><span>Limites combinados</span><button type="button" class="linkbtn" data-grp-new>+ Combinar categorias</button></div>
   ${groups.length ? groups.map(g=>`<div class="f budrow"><span class="bname">${cat(g.catIds[0])?.icon||"🧩"} ${esc(groupName(g))}<br><span class="mut" style="font-size:12px">${g.catIds.map(id=>esc(cat(id).name)).join(" + ")} · gasto ${money(g.catIds.reduce((s,id)=>s+(spent[id]||0),0))}</span><br><button type="button" class="linkbtn" data-grp-edit="${g.id}">Editar</button></span><input name="g:${g.id}" inputmode="decimal" placeholder="—" value="${g.limit?fmtInput(g.limit):""}"></div>`).join("") : `<p class="mut" style="font-size:13px;margin:0 0 8px">Some duas ou mais categorias num limite só, por exemplo Saúde + Cuidados pessoais. Elas continuam separadas nos lançamentos e relatórios.</p>`}
   <div class="pgh"><span>Por categoria</span></div>
-  ${cats.map(c=>{ const g = groupOfCat(c.id); return `<div class="f budrow"><span class="bname">${c.icon} ${esc(c.name)}<br><span class="mut" style="font-size:12px">${g?`no limite “${esc(groupName(g))}”`:`gasto ${money(spent[c.id]||0)}`}</span></span>${g?`<span class="mut budin">—</span>`:`<input name="${c.id}" inputmode="decimal" placeholder="—" value="${S.cfg.budgets[c.id]?fmtInput(S.cfg.budgets[c.id]):""}">`}</div>`; }).join("")}
+  ${cats.map(c=>{ const g = groupOfCat(c.id); return `<div class="f budrow"><span class="bname">${c.icon} ${esc(c.name)}<br><span class="mut" style="font-size:12px">${g?`no limite “${esc(groupName(g))}”`:`gasto ${money(spent[c.id]||0)}`}</span></span>${g?`<span class="budin">combinado</span>`:`<input name="${c.id}" inputmode="decimal" placeholder="—" value="${S.cfg.budgets[c.id]?fmtInput(S.cfg.budgets[c.id]):""}">`}</div>`; }).join("")}
   <button class="btn" type="submit">Salvar limites</button></form>`);
   const collect = ()=>{ const fd = new FormData($("#bf")); const b = {}; const gl = {};
     for(const [k,v] of fd.entries()){ const n = parseMoney(v); if(k.startsWith("g:")) gl[k.slice(2)] = n>0 ? n : 0; else if(n>0) b[k] = n; }
@@ -972,7 +972,7 @@ function groupForm(g){
   const draw = ()=>{
     const f0 = $("#gf"); const keep = f0 ? {name:f0.gname.value, limit:f0.glimit.value} : {};
     openSheet(`<h3>${g?"Editar limite combinado":"Combinar categorias"}</h3><form id="gf">
-      <div class="f"><span>Categorias (escolha duas ou mais)</span><div class="pills" style="margin-top:6px">${cats.map(c=>`<button type="button" class="pill ${sel.has(c.id)?"on":""}" data-c="${c.id}">${c.icon} ${esc(c.name)}</button>`).join("")}</div></div>
+      <div class="f gcats"><span>Categorias (escolha duas ou mais)</span><div class="pills" style="margin-top:6px">${cats.map(c=>`<button type="button" class="pill ${sel.has(c.id)?"on":""}" data-c="${c.id}">${c.icon} ${esc(c.name)}</button>`).join("")}</div></div>
       <label class="f">Nome <span class="mut">(opcional)</span><input name="gname" maxlength="40" placeholder="${esc([...sel].map(id=>cat(id)?.name).join(" + ") || "Ex.: Saúde e cuidados")}" value="${esc(keep.name??(g?.name||""))}"></label>
       <label class="f">Limite mensal<input name="glimit" inputmode="decimal" placeholder="0,00" value="${esc(keep.limit??(g&&g.limit?fmtInput(g.limit):""))}"></label>
       <button class="btn" type="submit">Salvar</button>
@@ -1021,7 +1021,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.0";
+const APP_VERSION = "1.4.1";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
