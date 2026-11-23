@@ -647,13 +647,19 @@ function reorderSheet(what){
 function srcItems(withCards, withInv, keepKey){
   const accs = S.cfg.accounts.filter(a=>!a.archived);
   const invs = accs.filter(a=>accKind(a)==="inv" && (withInv || keepKey==="a:"+a.id));
-  const it = [...accs.filter(a=>accKind(a)==="dia"), ...invs].map(a=>({k:"a:"+a.id, name:a.name, icon:accIcSm(a)}));
-  if(withCards) it.splice(accs.filter(a=>accKind(a)==="dia").length, 0, ...S.cfg.cards.filter(c=>!c.archived).map(c=>({k:"c:"+c.id, name:c.name, icon:cardIcSm(c)})));
+  const it = [...accs.filter(a=>accKind(a)==="dia"), ...invs].map(a=>({k:"a:"+a.id, name:a.name, icon:accIcSm(a), grp:accKind(a)==="inv"?"Investimentos":"Contas"}));
+  if(withCards) it.splice(accs.filter(a=>accKind(a)==="dia").length, 0, ...S.cfg.cards.filter(c=>!c.archived).map(c=>({k:"c:"+c.id, name:c.name, icon:cardIcSm(c), grp:"Cartões de crédito"})));
   return it;
 }
 function chipPicker(name, items, sel){
   if(!items.some(i=>i.k===sel) && items.length) sel = items[0].k;
-  return `<input type="hidden" name="${name}" value="${esc(sel)}"><div class="pills srcpick" data-for="${name}" role="radiogroup">${items.map(i=>`<button type="button" class="pill ${i.k===sel?"on":""}" data-pk="${i.k}" role="radio" aria-checked="${i.k===sel}">${i.icon} ${esc(i.name)}</button>`).join("")}</div>`;
+  const pill = i=>`<button type="button" class="pill ${i.k===sel?"on":""}" data-pk="${i.k}" role="radio" aria-checked="${i.k===sel}">${i.icon} ${esc(i.name)}</button>`;
+  // separa por grupo (Contas / Cartões de crédito / Investimentos) quando há mais de um, para não confundir nomes iguais
+  const grps = [...new Set(items.map(i=>i.grp||""))];
+  const body = grps.length > 1
+    ? grps.map(g=>`<div class="pk-grp">${esc(g)}</div><div class="pills">${items.filter(i=>(i.grp||"")===g).map(pill).join("")}</div>`).join("")
+    : `<div class="pills">${items.map(pill).join("")}</div>`;
+  return `<input type="hidden" name="${name}" value="${esc(sel)}"><div class="srcpick" data-for="${name}" role="radiogroup">${body}</div>`;
 }
 function bindChipPickers(root, onChange){
   root.querySelectorAll(".srcpick").forEach(g=>{
@@ -1023,7 +1029,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.1";
+const APP_VERSION = "1.4.2";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
