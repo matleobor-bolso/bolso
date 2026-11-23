@@ -1,6 +1,6 @@
 // Service worker do Bolso: guarda o app para abrir sem internet.
 // A cada nova versão, VERSION muda (igual a APP_VERSION em app.js) e o app oferece "Atualizar".
-const VERSION = "1.2.3";
+const VERSION = "1.3.0";
 const CACHE = "bolso-" + VERSION;
 const SHELL = ["./", "./index.html", "./app.js", "./app.css", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./icon-maskable-512.png", "./logo-128.png"];
 

@@ -96,8 +96,32 @@ function totalBalance(opts, kind){ return S.cfg.accounts.filter(a=>!a.archived &
 function rendIn(ym, accId){ return monthItems(ym).filter(i=>i.type==="rend" && (!accId || i.accountId===accId)).reduce((s,i)=>s+i.amount,0); }
 function invFlows(ym, accId){ let ap=0, rs=0; for(const i of monthItems(ym)){ if(i.type!=="tr") continue; const toI = isInv(i.toAccountId), frI = isInv(i.accountId); if(toI && !frI && (!accId || i.toAccountId===accId)) ap+=i.amount; if(frI && !toI && (!accId || i.accountId===accId)) rs+=i.amount; } return {ap, rs}; }
 function lastRend(accId){ let d=null; for(const i of allItems()) if(i.type==="rend" && i.accountId===accId && (!d || i.date>d)) d=i.date; return d; }
-function monthSums(ym){ let inc=0,exp=0; for(const i of monthItems(ym)){ if(i.type==="inc") inc+=i.amount; else if(i.type==="exp") exp+=i.amount; } return {inc,exp}; }
-function spentByCat(ym){ const m={}; for(const i of monthItems(ym)) if(i.type==="exp"){ m[i.catId]=(m[i.catId]||0)+i.amount; } return m; }
+/* Data considerada para gastos do cartão nos totais (relatórios, limites, resumo do mês):
+   "compra" (padrão, como no Organizze): parcelas contam na data da compra original;
+   "parcela": cada parcela no seu mês; "fatura": no vencimento da fatura. Lançamentos fora do cartão usam a própria data. */
+let dataRev = 0, effCache = null;
+const CARD_MODES = [["compra","Compra"],["parcela","Parcela"],["fatura","Fatura"]];
+function cardDateMode(){ const m = S.cfg && S.cfg.cardDateMode; return CARD_MODES.some(([k])=>k===m) ? m : "compra"; }
+function effDate(i){
+  if(!i.cardId) return i.date;
+  const mode = cardDateMode();
+  if(mode==="parcela") return i.date;
+  if(mode==="fatura"){ const c = card(i.cardId); return c ? invoiceDates(invoiceKey(i.date, c, i.inv), c).due : i.date; }
+  const m = /^(\d+)\/(\d+)$/.exec(i.inst || "");
+  return (m && +m[1] > 1) ? dateAddMonths(i.date, -(+m[1]-1)) : i.date;
+}
+function effItems(ym){
+  const mode = cardDateMode();
+  if(!effCache || effCache.rev!==dataRev || effCache.mode!==mode || effCache.months!==S.months){
+    const map = {};
+    for(const k in S.months) for(const i of S.months[k]){ if(i.type!=="exp" && i.type!=="inc") continue; const e = ymOf(effDate(i)); (map[e] ||= []).push(i); }
+    effCache = { rev:dataRev, mode, months:S.months, map };
+  }
+  return effCache.map[ym] || [];
+}
+function monthSums(ym){ let inc=0,exp=0; for(const i of effItems(ym)){ if(i.type==="inc") inc+=i.amount; else if(i.type==="exp") exp+=i.amount; } return {inc,exp}; }
+function spentByCat(ym){ const m={}; for(const i of effItems(ym)) if(i.type==="exp"){ m[i.catId]=(m[i.catId]||0)+i.amount; } return m; }
+function cardModeLabel(){ return {compra:"data da compra", parcela:"data da parcela", fatura:"data da fatura"}[cardDateMode()]; }
 function endOfMonth(ym){ const [y,m]=ym.split("-").map(Number); return `${ym}-${pad(daysIn(y,m))}`; }
 
 /* ============ Mutação de lançamentos ============ */
@@ -406,7 +430,8 @@ function viewCards(){
 
 function viewReports(){
   const ym = S.month;
-  let h = `<div class="card"><h2>Despesas por categoria</h2>${treemap(ym,10)}${catList(ym)}</div>`;
+  let h = `<div class="cardmode"><span>Gastos do cartão pela data da</span><div class="seg sm">${CARD_MODES.map(([k,l])=>`<button type="button" class="${cardDateMode()===k?"on":""}" data-act="cardMode" data-m="${k}">${l}</button>`).join("")}</div></div>`;
+  h += `<div class="card"><h2>Despesas por categoria</h2>${treemap(ym,10)}${catList(ym)}</div>`;
   // 6 meses
   const months = []; for(let k=5;k>=0;k--) months.push(ymAdd(ym,-k));
   const data = months.map(m=>({m,...monthSums(m)}));
@@ -576,7 +601,8 @@ function togglePend(){ try{ localStorage.setItem("bolso-pend-open", pendOpen() ?
 /* ---- Limites (aba própria) ---- */
 function viewLimits(){
   const ym = S.month;
-  return `<div class="card"><h2>Limites de ${ymLabel(ym)} <button class="linkbtn" data-act="budgets">Editar</button></h2>${budgetView(ym)}</div>`;
+  return `<div class="card"><h2>Limites de ${ymLabel(ym)} <button class="linkbtn" data-act="budgets">Editar</button></h2>${budgetView(ym)}</div>
+  <p class="mut" style="font-size:12px;text-align:center">Gastos do cartão contados pela ${cardModeLabel()}. Dá para mudar em Relatórios.</p>`;
 }
 
 /* ---- Reordenar contas e cartões ---- */
@@ -654,7 +680,7 @@ function txForm(existing, preset){
     <div class="seg">${[["exp","Despesa","e"],["inc","Receita","i"],["tr","Transferência",""]].map(([k,l,c])=>`<button type="button" class="${type===k?"on":""} ${c}" data-type="${k}" ${existing?"disabled":""}>${l}</button>`).join("")}</div>
     <form id="txf">
       <label class="f">Valor<input class="money" name="amount" inputmode="decimal" placeholder="0,00" value="${keep.amount??(existing?fmtInput(it.amount):"")}" required></label>
-      <label class="f">Descrição<input name="desc" placeholder="${isTr?"Ex.: reserva":"Ex.: almoço, aluguel"}" value="${esc(keep.desc??(it.desc||""))}" maxlength="80"></label>
+      <div class="f sugwrap"><label for="descIn">Descrição</label><input id="descIn" name="desc" placeholder="${isTr?"Ex.: reserva":"Ex.: almoço, aluguel"}" value="${esc(keep.desc??(it.desc||""))}" maxlength="80" autocomplete="off" aria-autocomplete="list" aria-controls="sugList"><div class="sug" id="sugList" role="listbox" hidden></div></div>
       <div class="two">
         <label class="f">Data<input type="date" name="date" value="${keep.date||it.date}" required></label>
         ${isTr?"":`<label class="f">Categoria<select name="cat">${catOptions(type,it.catId)}</select></label>`}
@@ -675,6 +701,7 @@ function txForm(existing, preset){
     const paidRow=$("#paidRow"); const f = $("#txf");
     const upd = ()=>{ paidRow.style.display = (!isTr && f.src.value.startsWith("c:")) ? "none":"flex"; };
     bindChipPickers(f, (n,v)=>{ if(n==="src") src=v; if(n==="to") toV=v; upd(); }); upd();
+    bindSuggestions(f, type);
     $("#moreOpt").onclick=()=>{ showMore=true; $("#moreBox").style.display="block"; $("#moreOpt").style.display="none"; };
     const rep=$("#repSel"); if(rep) rep.onchange=()=>{ $("#nRow").style.display = rep.value==="inst"?"block":"none"; };
     const dateIn = $("#txf").date; dateIn.onchange = ()=>{ if(!existing) $("#txf").paid.checked = dateIn.value <= todayStr(); };
@@ -683,6 +710,62 @@ function txForm(existing, preset){
     if(!existing && !keep.amount) setTimeout(()=>$("#txf").amount.focus(),50);
   };
   draw();
+}
+
+
+/* ---- Sugestões de descrição a partir do histórico ---- */
+let sugCache = null;
+const normTxt = s => String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/\s+\d+\/\d+$/,"").trim();
+function sugIndex(type){
+  if(sugCache && sugCache.rev===dataRev && sugCache.type===type && sugCache.months===S.months) return sugCache.list;
+  const by = new Map();
+  for(const k in S.months) for(const i of S.months[k]){
+    if(i.type!==type || !i.desc) continue;
+    const key = normTxt(i.desc); if(!key) continue;
+    const e = by.get(key);
+    if(!e) by.set(key, {key, desc:i.desc.replace(/\s+\d+\/\d+$/,"").trim(), n:1, last:i});
+    else { e.n++; if(i.date > e.last.date){ e.last = i; e.desc = i.desc.replace(/\s+\d+\/\d+$/,"").trim(); } }
+  }
+  const list = [...by.values()];
+  sugCache = {rev:dataRev, type, months:S.months, list};
+  return list;
+}
+function bindSuggestions(f, type){
+  const inp = f.desc, box = $("#sugList"); if(!inp || !box) return;
+  let items = [], active = -1;
+  const hide = ()=>{ box.hidden = true; items = []; active = -1; };
+  const show = ()=>{
+    const q = normTxt(inp.value);
+    if(q.length < 2){ hide(); return; }
+    items = sugIndex(type).map(e=>({e, s: e.key.startsWith(q) ? 2 : (e.key.includes(q) ? 1 : 0)})).filter(x=>x.s>0 && x.e.key!==q)
+      .sort((a,b)=> b.s-a.s || b.e.n-a.e.n || (a.e.last.date<b.e.last.date?1:-1)).slice(0,5).map(x=>x.e);
+    if(!items.length){ hide(); return; }
+    box.innerHTML = items.map((e,ix)=>{ const l=e.last; const c=cat(l.catId);
+      const where = l.type==="tr" ? `${acc(l.accountId)?.name||"?"} → ${acc(l.toAccountId)?.name||"?"}` : (l.cardId ? (card(l.cardId)?.name||"Cartão") : (acc(l.accountId)?.name||""));
+      return `<button type="button" class="sugi" role="option" data-ix="${ix}"><span class="sic">${l.type==="tr"?"🔁":esc(c?.icon||"❓")}</span><span class="smid"><b>${esc(e.desc)}</b><small>${esc([c?.name, where].filter(Boolean).join(" · "))}</small></span><span class="samt">${money(l.amount)}</span></button>`; }).join("");
+    box.hidden = false; active = -1;
+  };
+  const pick = ix => {
+    const l = items[ix] && items[ix].last; if(!l) return;
+    inp.value = items[ix].desc;
+    if(type!=="tr" && l.catId && f.cat && [...f.cat.options].some(o=>o.value===l.catId)) f.cat.value = l.catId;
+    const choose = (name, key) => { const b = f.querySelector(`.srcpick[data-for="${name}"] [data-pk="${key}"]`); if(b) b.click(); };
+    if(type==="tr"){ choose("src", "a:"+l.accountId); choose("to", "a:"+l.toAccountId); }
+    else choose("src", l.cardId ? "c:"+l.cardId : "a:"+l.accountId);
+    if(!f.amount.value.trim()) f.amount.value = fmtInput(l.amount);
+    hide();
+  };
+  inp.addEventListener("input", show);
+  inp.addEventListener("focus", show);
+  inp.addEventListener("blur", ()=>setTimeout(hide, 150));
+  inp.addEventListener("keydown", e=>{
+    if(box.hidden) return;
+    if(e.key==="ArrowDown"||e.key==="ArrowUp"){ e.preventDefault(); active = (active + (e.key==="ArrowDown"?1:-1) + items.length) % items.length; box.querySelectorAll(".sugi").forEach((b,i)=>b.classList.toggle("on", i===active)); }
+    else if(e.key==="Enter" && active>=0){ e.preventDefault(); pick(active); }
+    else if(e.key==="Escape") hide();
+  });
+  box.addEventListener("mousedown", e=>e.preventDefault()); // não tira o foco antes do toque
+  box.addEventListener("click", e=>{ const b = e.target.closest(".sugi"); if(b) pick(+b.dataset.ix); });
 }
 
 async function saveTx(existing, type, fd){
@@ -887,7 +970,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.2.3";
+const APP_VERSION = "1.3.0";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -910,7 +993,7 @@ function persistLocal(now){
   const run = async ()=>{ try{ await kvSet("data", snapshot()); await kvSet("sync", syncMeta()); }catch(e){ toast("Não foi possível salvar neste aparelho."); } };
   if(now) return run(); persistT = setTimeout(run, 200);
 }
-function markChanged(){ Store.dirty = true; persistLocal(); renderSync(); scheduleSync(); }
+function markChanged(){ dataRev++; Store.dirty = true; persistLocal(); renderSync(); scheduleSync(); }
 function saveCfg(){ markChanged(); }
 function saveMonth(){ markChanged(); }
 
@@ -925,7 +1008,7 @@ function migrateInv(){
   markChanged();
 }
 function validBackup(d){ return d && d.app==="bolso" && d.config && typeof d.config==="object" && (!d.months || typeof d.months==="object"); }
-function applyData(d){ S.cfg = normalizeCfg(d.config); S.months = d.months || {}; migrateInv(); }
+function applyData(d){ dataRev++; S.cfg = normalizeCfg(d.config); S.months = d.months || {}; migrateInv(); }
 
 async function initStore(){
   if(DEMO){ const d = demoData(); S.cfg = d.config; S.months = d.months; S.name = "Visitante"; S.ready = true; render(); renderSync(); return; }
@@ -1201,6 +1284,7 @@ document.addEventListener("click", e=>{
   else if(a==="filter"){ S.txFilter=t.dataset.f; render(); }
   else if(a==="filters") filtersSheet();
   else if(a==="togglePend") togglePend();
+  else if(a==="cardMode"){ if(cardDateMode()!==t.dataset.m){ S.cfg.cardDateMode = t.dataset.m; saveCfg(); render(); } }
   else if(a==="checkUpd") manualUpdateCheck();
   else if(a==="forceUpd") forceUpdate();
   else if(a==="reorder") reorderSheet(t.dataset.what);
