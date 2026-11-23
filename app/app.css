@@ -310,3 +310,8 @@ div.f > span{display:block}
 .crow .ic{width:38px;height:38px;border-radius:50%;background:var(--surface-2);display:grid;place-items:center;font-size:18px;flex:none;overflow:hidden}
 .crow.on .ic{background:var(--surface,#fff)}
 .crow .ic:has(.instlogo){background:none}
+/* ---- escolha de conta/cartão agrupada ---- */
+.srcpick .pk-grp{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin:10px 2px 5px}
+.srcpick .pk-grp:first-child{margin-top:2px}
+.pill .pk-tag{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;padding:1px 6px;border-radius:999px;background:var(--line);color:var(--text-2)}
+.pill.on .pk-tag{background:rgba(255,255,255,.25);color:inherit}
