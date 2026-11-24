@@ -142,24 +142,10 @@ async function fileToLogo(file){
   const url = URL.createObjectURL(file);
   try{
     const img = await new Promise((res,rej)=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
-    // 1) Acha a margem de cor uniforme (fundo branco, transparente etc.) para cortá-la.
-    const A = 256, k0 = Math.min(1, A/Math.max(img.width, img.height));
-    const aw = Math.max(1, Math.round(img.width*k0)), ah = Math.max(1, Math.round(img.height*k0));
-    const ca = document.createElement("canvas"); ca.width = aw; ca.height = ah;
-    const ga = ca.getContext("2d", {willReadFrequently:true}); ga.drawImage(img, 0, 0, aw, ah);
-    const d = ga.getImageData(0, 0, aw, ah).data;
-    const at = (x,y)=>{ const i=(y*aw+x)*4; return [d[i],d[i+1],d[i+2],d[i+3]]; };
-    const bg = at(0,0);
-    const differs = p => (bg[3]<16 && p[3]<16) ? false : (Math.abs(p[0]-bg[0])+Math.abs(p[1]-bg[1])+Math.abs(p[2]-bg[2])+Math.abs(p[3]-bg[3])) > 48;
-    let x0=aw, y0=ah, x1=-1, y1=-1;
-    for(let y=0;y<ah;y++) for(let x=0;x<aw;x++) if(differs(at(x,y))){ if(x<x0)x0=x; if(x>x1)x1=x; if(y<y0)y0=y; if(y>y1)y1=y; }
-    if(x1<0){ x0=0; y0=0; x1=aw-1; y1=ah-1; }
-    const sx = x0/k0, sy = y0/k0, sw = (x1-x0+1)/k0, sh = (y1-y0+1)/k0;
-    // 2) Centraliza o conteúdo num quadrado; se sobrar espaço, preenche com a cor de fundo original.
-    const N = 128, c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d");
-    if(bg[3] >= 16){ g.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`; g.fillRect(0,0,N,N); }
-    const k = Math.min(N/sw, N/sh); const w = sw*k, h = sh*k;
-    g.drawImage(img, sx, sy, sw, sh, (N-w)/2, (N-h)/2, w, h);
+    // Mantém a imagem como enviada (sem cortar margens nem acrescentar fundo); só reduz o tamanho, preservando a proporção.
+    const M = 160, k = Math.min(1, M/Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width*k)), h = Math.max(1, Math.round(img.height*k));
+    const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h);
     let out = c.toDataURL("image/webp", 0.88); if(!out.startsWith("data:image/webp")) out = c.toDataURL("image/png");
     return safeLogo(out);
   } finally { URL.revokeObjectURL(url); }
@@ -1029,7 +1015,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.3";
+const APP_VERSION = "1.4.4";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";

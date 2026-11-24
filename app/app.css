@@ -324,3 +324,6 @@ div.f > span, .sugwrap > label{display:block;margin-bottom:6px}
 .srcpick .pk-grp{margin:14px 2px 8px}
 .srcpick .pk-grp:first-child{margin-top:4px}
 .switch{margin-bottom:12px}
+/* ---- logos: exibidos inteiros, na proporção original, sem borda nem recorte ---- */
+.ic .instlogo, .instlogo.sm{object-fit:contain;border-radius:0;box-shadow:none;background:none}
+.ic:has(.instlogo){background:none!important;border-radius:0!important;overflow:visible!important;padding:0}
