@@ -142,10 +142,14 @@ async function fileToLogo(file){
   const url = URL.createObjectURL(file);
   try{
     const img = await new Promise((res,rej)=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
-    // Mantém a imagem como enviada (sem cortar margens nem acrescentar fundo); só reduz o tamanho, preservando a proporção.
-    const M = 160, k = Math.min(1, M/Math.max(img.width, img.height));
-    const w = Math.max(1, Math.round(img.width*k)), h = Math.max(1, Math.round(img.height*k));
-    const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h);
+    // Não corta as margens da imagem: ela entra inteira num quadrado (para caber no círculo).
+    // Se não for quadrada, o espaço que sobra é preenchido com a cor do canto da própria imagem.
+    const N = 160, k = Math.min(N/img.width, N/img.height);
+    const w = img.width*k, h = img.height*k;
+    const c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d", {willReadFrequently:true});
+    g.drawImage(img, 0, 0, 1, 1, 0, 0, 1, 1); const bg = g.getImageData(0, 0, 1, 1).data; g.clearRect(0, 0, N, N);
+    if(bg[3] >= 16){ g.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`; g.fillRect(0, 0, N, N); }
+    g.drawImage(img, (N-w)/2, (N-h)/2, w, h);
     let out = c.toDataURL("image/webp", 0.88); if(!out.startsWith("data:image/webp")) out = c.toDataURL("image/png");
     return safeLogo(out);
   } finally { URL.revokeObjectURL(url); }
@@ -1015,7 +1019,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.4";
+const APP_VERSION = "1.4.5";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
