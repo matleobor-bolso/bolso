@@ -801,7 +801,7 @@ async function saveTx(existing, type, fd){
   const touched = [];
   if(existing){
     let scope = "one";
-    if(existing.group){ scope = await confirmBox("Lançamento repetido","Aplicar a alteração a quais lançamentos?",[{label:"Somente este",value:"one"},{label:"Este e os próximos",value:"next"}]); if(!scope) return; }
+    if(existing.group){ scope = await confirmBox(existing.inst?"Lançamento parcelado":"Lançamento fixo","Aplicar a alteração a quais lançamentos? A data só muda neste.",[{label:"Somente este",value:"one"},{label:"Este e os próximos",value:"next"},{label:"Todos da série",value:"all"}]); if(!scope) return; }
     const apply = (it, isThis)=>{
       const old = ymOf(it.date);
       Object.assign(it, {desc:base.desc, notes:base.notes, catId:base.catId, accountId:base.accountId, cardId:base.cardId, toAccountId:base.toAccountId, amount});
@@ -809,7 +809,7 @@ async function saveTx(existing, type, fd){
       touched.push(old);
       if(ymOf(it.date)!==old){ removeItem(it.id); putItem(it); touched.push(ymOf(it.date)); }
     };
-    if(scope==="next"){ allItems().filter(i=>i.group===existing.group && i.date>=existing.date && i.id!==existing.id).forEach(i=>apply(i,false)); }
+    if(scope!=="one"){ allItems().filter(i=>i.group===existing.group && i.id!==existing.id && (scope==="all" || i.date>=existing.date)).forEach(i=>apply(i,false)); }
     apply(existing,true);
     closeSheet(); commit(touched); toast("Lançamento atualizado.");
     return;
@@ -834,7 +834,7 @@ async function saveTx(existing, type, fd){
 
 async function deleteTx(it){
   let scope = "one";
-  if(it.group){ scope = await confirmBox("Excluir lançamento repetido","Quais lançamentos você quer excluir?",[{label:"Somente este",value:"one",cls:"danger"},{label:"Este e os próximos",value:"next",cls:"danger"},{label:"Todos da série",value:"all",cls:"danger"}]); }
+  if(it.group){ scope = await confirmBox(it.inst?"Excluir lançamento parcelado":"Excluir lançamento fixo","Quais lançamentos você quer excluir?",[{label:"Somente este",value:"one",cls:"danger"},{label:"Este e os próximos",value:"next",cls:"danger"},{label:"Todos da série",value:"all",cls:"danger"}]); }
   else { scope = await confirmBox("Excluir lançamento", `"${it.desc||cat(it.catId)?.name||"Lançamento"}" de ${money(it.amount)} será excluído.`, [{label:"Excluir",value:"one",cls:"danger"}]); }
   if(!scope) return;
   const touched=[];
@@ -1026,7 +1026,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.5";
+const APP_VERSION = "1.4.6";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1064,7 +1064,29 @@ function migrateInv(){
   markChanged();
 }
 function validBackup(d){ return d && d.app==="bolso" && d.config && typeof d.config==="object" && (!d.months || typeof d.months==="object"); }
-function applyData(d){ dataRev++; S.cfg = normalizeCfg(d.config); S.months = d.months || {}; migrateInv(); }
+/* Lançamentos fixos e parcelados que chegaram sem "group" (ex.: importados) ganham um,
+   para que editar/excluir possa perguntar "somente este / este e os próximos / todos".
+   Parcelas: mesma conta/cartão, categoria, descrição, total de parcelas e mês da 1ª parcela.
+   Fixos: mesma conta/cartão, categoria, descrição e tipo. Guarda uma cópia antes de mudar. */
+function migrateGroups(){
+  if(S.cfg.grpV1) return;
+  const before = DEMO ? null : JSON.stringify(snapshot());
+  const series = {}; let changed = 0;
+  for(const ym in S.months) for(const i of S.months[ym]){
+    if(i.group || (i.type!=="exp" && i.type!=="inc")) continue;
+    const who = (i.cardId?"c:"+i.cardId:"a:"+i.accountId)+"|"+(i.catId||"")+"|"+i.type+"|"+normTxt(i.desc||"");
+    let key = null; const m = /^(\d+)\/(\d+)$/.exec(i.inst||"");
+    if(m) key = "p|"+who+"|"+m[2]+"|"+ymAdd(ymOf(i.date), -(+m[1]-1));
+    else if(i.fixed) key = "f|"+who;
+    if(!key) continue;
+    (series[key] ||= []).push(i);
+  }
+  for(const k in series){ const list = series[k]; if(list.length < 2) continue; const g = newId(); list.forEach(i=>{ i.group = g; changed++; }); }
+  S.cfg.grpV1 = true;
+  if(before && changed) kvSet("antes-series-"+todayStr(), JSON.parse(before)).catch(()=>{});
+  markChanged();
+}
+function applyData(d){ dataRev++; S.cfg = normalizeCfg(d.config); S.months = d.months || {}; migrateInv(); migrateGroups(); }
 
 async function initStore(){
   if(DEMO){ const d = demoData(); S.cfg = d.config; S.months = d.months; S.name = "Visitante"; S.ready = true; render(); renderSync(); return; }
@@ -1261,7 +1283,7 @@ function viewWelcome(){
 
 /* ============ Demonstração (dados fictícios, nada é salvo) ============ */
 function demoData(){
-  const cfg = defaultConfig(); cfg.invV1 = true;
+  const cfg = defaultConfig(); cfg.invV1 = true; cfg.grpV1 = true;
   const acc0 = cfg.accounts[0]; acc0.name = "Banco Exemplo"; acc0.initial = 3200;
   cfg.accounts.push({id:"inv1", name:"Reserva", kind:"inv", initial:5000, icon:"🛟", goal:12000, goalDate:ymAdd(ymOf(todayStr()),12)});
   cfg.accounts.push({id:"inv2", name:"Viagem", kind:"inv", initial:800, icon:"🏖️"});
@@ -1374,7 +1396,7 @@ document.addEventListener("click", e=>{
   else if(a==="disconnect") disconnectDrive();
   else if(a==="lockOn") enableLock();
   else if(a==="lockOff") disableLock();
-  else if(a==="startEmpty"){ S.cfg = defaultConfig(); S.cfg.invV1 = true; S.months = {}; markChanged(); render(); }
+  else if(a==="startEmpty"){ S.cfg = defaultConfig(); S.cfg.invV1 = true; S.cfg.grpV1 = true; S.months = {}; markChanged(); render(); }
 });
 document.addEventListener("input", e=>{ if(e.target.id==="txSearch"){ S.txSearch=e.target.value; const pos=e.target.selectionStart; render(); const s=$("#txSearch"); s.focus(); s.setSelectionRange(pos,pos); } });
 $("#fab").onclick = ()=>{ if(S.ready && S.cfg) txForm(null); };
