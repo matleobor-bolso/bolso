@@ -16,7 +16,16 @@ function dateAddMonths(ds, n, keepDay){ const [y,m,d]=ds.split("-").map(Number);
 function ymLabel(ym){ const [y,m]=ym.split("-").map(Number); const cur=new Date().getFullYear(); return MESES[m-1] + (y!==cur?` ${y}`:""); }
 function dayLabel(ds){ const [y,m,d]=ds.split("-").map(Number); const dt=new Date(y,m-1,d); const w=dt.toLocaleDateString("pt-BR",{weekday:"long"}); const t=todayStr(); if(ds===t) return "Hoje"; return `${w.charAt(0).toUpperCase()+w.slice(1)}, ${d} de ${MESES[m-1]}`; }
 function parseMoney(s){ s=String(s||"").trim().replace(/[R$\s]/g,""); if(!s) return NaN; if(s.includes(",")) s=s.replace(/\./g,"").replace(",","."); else if(/^\d{1,3}(\.\d{3})+$/.test(s)) s=s.replace(/\./g,""); return Math.round(parseFloat(s)*100)/100; }
-function fmtInput(v){ return v||v===0 ? String(v.toFixed(2)).replace(".",",") : ""; }
+function fmtInput(v){ if(!(v||v===0)) return ""; const neg = v<0; const [i,d] = Math.abs(v).toFixed(2).split("."); return (neg?"-":"")+i.replace(/\B(?=(\d{3})+(?!\d))/g,".")+","+d; }
+/* Campos de valor com a vírgula fixa (como no Organizze): digitar 9 → 0,09; 98 → 0,98; 980 → 9,80.
+   Vale para todo <input inputmode="numeric|decimal"> com data-money. Apagar tudo deixa o campo vazio. */
+function maskMoney(inp){
+  const neg = inp.value.includes("-"); const dig = inp.value.replace(/\D/g,"").replace(/^0+/,"");
+  inp.value = dig ? fmtInput((neg?-1:1)*Number(dig)/100) : (neg?"-":"");
+  try{ const n = inp.value.length; inp.setSelectionRange(n, n); }catch(e){}
+}
+document.addEventListener("input", e=>{ const t = e.target; if(t && t.matches && t.matches("input[data-money]")) maskMoney(t); }, true); // captura: formata antes de outros ouvintes lerem o valor
+document.addEventListener("focusin", e=>{ const t = e.target; if(t && t.matches && t.matches("input[data-money]")) setTimeout(()=>{ try{ const n=t.value.length; t.setSelectionRange(n,n); }catch(_){} }, 0); });
 let toastT; function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("show"),2600); }
 
 /* ============ Estado ============ */
@@ -579,7 +588,7 @@ function updBalSheet(onlyId){
   const t = todayStr();
   openSheet(`<h3>Atualizar ${onlyId?"saldo":"saldos"}</h3><p class="t2" style="margin-top:-6px;font-size:14px">Abra o app do banco e digite o saldo de hoje. O Bolso calcula o rendimento desde a última atualização. Deixe em branco o que não quiser atualizar.</p>
   <form id="ubf"><label class="f">Data<input type="date" name="date" value="${t}" max="${t}"></label>
-  ${invs.map(a=>{ const lr=lastRend(a.id); return `<div class="ubrow"><div class="mid"><div class="ttl">${accIcSm(a,"🐷")} ${esc(a.name)}</div><div class="meta">No Bolso: ${money(accountBalance(a.id,{upto:t}))}${lr?` · atualizado em ${lr.slice(8)}/${lr.slice(5,7)}`:""}</div><div class="meta ubd" id="ubd-${a.id}"></div></div><input name="${a.id}" inputmode="decimal" placeholder="Saldo hoje"></div>`; }).join("")}
+  ${invs.map(a=>{ const lr=lastRend(a.id); return `<div class="ubrow"><div class="mid"><div class="ttl">${accIcSm(a,"🐷")} ${esc(a.name)}</div><div class="meta">No Bolso: ${money(accountBalance(a.id,{upto:t}))}${lr?` · atualizado em ${lr.slice(8)}/${lr.slice(5,7)}`:""}</div><div class="meta ubd" id="ubd-${a.id}"></div></div><input name="${a.id}" inputmode="numeric" data-money placeholder="Saldo hoje"></div>`; }).join("")}
   <button class="btn" type="submit">Registrar rendimentos</button></form>`);
   const f=$("#ubf");
   const preview = ()=>{ const d=f.date.value||t; invs.forEach(a=>{ const v=parseMoney(f[a.id].value); const el=$("#ubd-"+a.id); if(isNaN(v)){ el.textContent=""; return; } const diff=Math.round((v-accountBalance(a.id,{upto:d}))*100)/100; el.innerHTML = diff===0?"Sem diferença":`Rendimento: <b class="${diff>0?"inc":"exp"}">${diff>0?"+":"−"}${money(Math.abs(diff))}</b>`; }); };
@@ -590,7 +599,7 @@ function updBalSheet(onlyId){
 }
 function rendForm(it){
   openSheet(`<h3>Rendimento</h3><p class="t2" style="margin-top:-6px;font-size:14px">${esc(acc(it.accountId)?.name||"")}. Use valor negativo para perda.</p><form id="rf">
-  <div class="two"><label class="f">Valor<input name="amount" inputmode="decimal" value="${(it.amount<0?"-":"")+fmtInput(Math.abs(it.amount))}"></label><label class="f">Data<input type="date" name="date" value="${it.date}"></label></div>
+  <div class="two"><label class="f">Valor<input name="amount" inputmode="decimal" data-money value="${(it.amount<0?"-":"")+fmtInput(Math.abs(it.amount))}"></label><label class="f">Data<input type="date" name="date" value="${it.date}"></label></div>
   <button class="btn" type="submit">Salvar</button><button class="btn danger" type="button" id="delR">Excluir</button></form>`);
   $("#rf").onsubmit = e=>{ e.preventDefault(); const raw=$("#rf").amount.value.trim(); const neg=raw.startsWith("-"); const v=parseMoney(raw.replace(/^-/,"")); if(isNaN(v)) return toast("Valor inválido.");
     const old=ymOf(it.date); it.amount = neg?-v:v; it.date=$("#rf").date.value||it.date; const touched=[old]; if(ymOf(it.date)!==old){ removeItem(it.id); putItem(it); touched.push(ymOf(it.date)); } closeSheet(); commit(touched); };
@@ -695,7 +704,7 @@ function txForm(existing, preset){
     openSheet(`<h3>${existing?"Editar lançamento":(preset&&preset.title)||"Novo lançamento"}</h3>
     <div class="seg">${[["exp","Despesa","e"],["inc","Receita","i"],["tr","Transferência",""]].map(([k,l,c])=>`<button type="button" class="${type===k?"on":""} ${c}" data-type="${k}" ${existing?"disabled":""}>${l}</button>`).join("")}</div>
     <form id="txf">
-      <label class="f">Valor<input class="money" name="amount" inputmode="decimal" placeholder="0,00" value="${keep.amount??(existing?fmtInput(it.amount):"")}" required></label>
+      <label class="f">Valor<input class="money" name="amount" inputmode="numeric" data-money placeholder="0,00" value="${keep.amount??(existing?fmtInput(it.amount):"")}" required></label>
       <div class="f sugwrap"><label for="descIn">Descrição</label><input id="descIn" name="desc" placeholder="${isTr?"Ex.: reserva":"Ex.: almoço, aluguel"}" value="${esc(keep.desc??(it.desc||""))}" maxlength="80" autocomplete="off" aria-autocomplete="list" aria-controls="sugList"><div class="sug" id="sugList" role="listbox" hidden></div></div>
       <div class="two">
         <label class="f">Data<input type="date" name="date" value="${keep.date||it.date}" required></label>
@@ -858,8 +867,8 @@ function accountForm(a, presetKind){
     <div class="seg"><button type="button" class="${kind==="dia"?"on":""}" data-k="dia">Dia a dia</button><button type="button" class="${kind==="inv"?"on":""}" data-k="inv">Investimento</button></div>
     <form id="af">
     <label class="f">Nome<input name="name" value="${esc(keep.name??x.name)}" placeholder="${kind==="inv"?"Ex.: Reserva de emergência":"Ex.: Nubank, Itaú"}" required maxlength="40"></label>
-    <label class="f">Saldo inicial<input name="initial" inputmode="decimal" value="${keep.initial??fmtInput(Number(x.initial)||0)}"></label>
-    ${kind==="inv"?`<div class="two"><label class="f">Meta <span class="mut">(opcional)</span><input name="goal" inputmode="decimal" placeholder="Ex.: 70.000,00" value="${keep.goal??(x.goal?fmtInput(x.goal):"")}"></label>
+    <label class="f">Saldo inicial<input name="initial" inputmode="decimal" data-money value="${keep.initial??fmtInput(Number(x.initial)||0)}"></label>
+    ${kind==="inv"?`<div class="two"><label class="f">Meta <span class="mut">(opcional)</span><input name="goal" inputmode="numeric" data-money placeholder="Ex.: 70.000,00" value="${keep.goal??(x.goal?fmtInput(x.goal):"")}"></label>
     <label class="f">Até <span class="mut">(opcional)</span><input name="goalDate" type="month" value="${keep.goalDate??(x.goalDate||"")}"></label></div>`:""}
     ${logoField(logo)}
     ${logo?"":`<label class="f">Ícone<div class="emojis">${icons.map(e=>`<button type="button" class="${e===icon?"on":""}" data-e="${e}">${e}</button>`).join("")}</div></label>`}
@@ -894,7 +903,7 @@ function cardForm(c){
   const f0 = $("#cf"); const keep = f0 ? {name:f0.name.value, limit:f0.limit.value, closeDay:f0.closeDay.value, dueDay:f0.dueDay.value, acc:f0.acc.value} : {};
   openSheet(`<h3>${c?"Editar cartão":"Novo cartão"}</h3><form id="cf">
     <label class="f">Nome<input name="name" value="${esc(keep.name??x.name)}" placeholder="Ex.: Nubank Roxinho" required maxlength="40"></label>
-    <label class="f">Limite<input name="limit" inputmode="decimal" value="${esc(keep.limit??fmtInput(Number(x.limit)||0))}"></label>
+    <label class="f">Limite<input name="limit" inputmode="numeric" data-money value="${esc(keep.limit??fmtInput(Number(x.limit)||0))}"></label>
     <div class="two"><label class="f">Dia do fechamento<input name="closeDay" type="number" min="1" max="31" value="${esc(keep.closeDay??x.closeDay)}" required></label>
     <label class="f">Dia do vencimento<input name="dueDay" type="number" min="1" max="31" value="${esc(keep.dueDay??x.dueDay)}" required></label></div>
     <div class="f"><span>Conta usada para pagar</span>${chipPicker("acc", srcItems(false, false, c ? "a:"+x.accountId : null), keep.acc||("a:"+x.accountId))}</div>
@@ -917,7 +926,7 @@ function cardForm(c){
 function payInvoice(key){
   const c = card(S.cardSel); const total = invoiceTotal(c.id,key);
   openSheet(`<h3>Pagar fatura de ${ymLabel(key)}</h3><form id="pf">
-    <label class="f">Valor<input class="money" name="amount" inputmode="decimal" value="${fmtInput(total)}"></label>
+    <label class="f">Valor<input class="money" name="amount" inputmode="numeric" data-money value="${fmtInput(total)}"></label>
     <div class="two"><label class="f">Data do pagamento<input type="date" name="date" value="${todayStr()}"></label>
     </div><div class="f"><span>Conta</span>${chipPicker("acc", srcItems(false), "a:"+c.accountId)}</div>
     <button class="btn" type="submit">Confirmar pagamento</button></form>`);
@@ -957,9 +966,9 @@ function budgetsForm(){
   const cats = S.cfg.categories.filter(c=>c.kind==="exp" && !c.archived);
   openSheet(`<h3>Limites mensais</h3><p class="t2" style="margin-top:-6px;font-size:14px">Deixe em branco o que não quiser acompanhar. Gasto em ${ymLabel(S.month)} ao lado.</p><form id="bf">
   <div class="pgh"><span>Limites combinados</span><button type="button" class="linkbtn" data-grp-new>+ Combinar categorias</button></div>
-  ${groups.length ? groups.map(g=>`<div class="f budrow"><span class="bname">${cat(g.catIds[0])?.icon||"🧩"} ${esc(groupName(g))}<br><span class="mut" style="font-size:12px">${g.catIds.map(id=>esc(cat(id).name)).join(" + ")} · gasto ${money(g.catIds.reduce((s,id)=>s+(spent[id]||0),0))}</span><br><button type="button" class="linkbtn" data-grp-edit="${g.id}">Editar</button></span><input name="g:${g.id}" inputmode="decimal" placeholder="—" value="${g.limit?fmtInput(g.limit):""}"></div>`).join("") : `<p class="mut" style="font-size:13px;margin:0 0 8px">Some duas ou mais categorias num limite só, por exemplo Saúde + Cuidados pessoais. Elas continuam separadas nos lançamentos e relatórios.</p>`}
+  ${groups.length ? groups.map(g=>`<div class="f budrow"><span class="bname">${cat(g.catIds[0])?.icon||"🧩"} ${esc(groupName(g))}<br><span class="mut" style="font-size:12px">${g.catIds.map(id=>esc(cat(id).name)).join(" + ")} · gasto ${money(g.catIds.reduce((s,id)=>s+(spent[id]||0),0))}</span><br><button type="button" class="linkbtn" data-grp-edit="${g.id}">Editar</button></span><input name="g:${g.id}" inputmode="numeric" data-money placeholder="—" value="${g.limit?fmtInput(g.limit):""}"></div>`).join("") : `<p class="mut" style="font-size:13px;margin:0 0 8px">Some duas ou mais categorias num limite só, por exemplo Saúde + Cuidados pessoais. Elas continuam separadas nos lançamentos e relatórios.</p>`}
   <div class="pgh"><span>Por categoria</span></div>
-  ${cats.map(c=>{ const g = groupOfCat(c.id); return `<div class="f budrow"><span class="bname">${c.icon} ${esc(c.name)}<br><span class="mut" style="font-size:12px">${g?`no limite “${esc(groupName(g))}”`:`gasto ${money(spent[c.id]||0)}`}</span></span>${g?`<span class="budin">combinado</span>`:`<input name="${c.id}" inputmode="decimal" placeholder="—" value="${S.cfg.budgets[c.id]?fmtInput(S.cfg.budgets[c.id]):""}">`}</div>`; }).join("")}
+  ${cats.map(c=>{ const g = groupOfCat(c.id); return `<div class="f budrow"><span class="bname">${c.icon} ${esc(c.name)}<br><span class="mut" style="font-size:12px">${g?`no limite “${esc(groupName(g))}”`:`gasto ${money(spent[c.id]||0)}`}</span></span>${g?`<span class="budin">combinado</span>`:`<input name="${c.id}" inputmode="numeric" data-money placeholder="—" value="${S.cfg.budgets[c.id]?fmtInput(S.cfg.budgets[c.id]):""}">`}</div>`; }).join("")}
   <button class="btn" type="submit">Salvar limites</button></form>`);
   const collect = ()=>{ const fd = new FormData($("#bf")); const b = {}; const gl = {};
     for(const [k,v] of fd.entries()){ const n = parseMoney(v); if(k.startsWith("g:")) gl[k.slice(2)] = n>0 ? n : 0; else if(n>0) b[k] = n; }
@@ -979,7 +988,7 @@ function groupForm(g){
     openSheet(`<h3>${g?"Editar limite combinado":"Combinar categorias"}</h3><form id="gf">
       <div class="f gcats"><span>Categorias (escolha duas ou mais)</span><div class="pills" style="margin-top:6px">${cats.map(c=>`<button type="button" class="pill ${sel.has(c.id)?"on":""}" data-c="${c.id}">${c.icon} ${esc(c.name)}</button>`).join("")}</div></div>
       <label class="f">Nome <span class="mut">(opcional)</span><input name="gname" maxlength="40" placeholder="${esc([...sel].map(id=>cat(id)?.name).join(" + ") || "Ex.: Saúde e cuidados")}" value="${esc(keep.name??(g?.name||""))}"></label>
-      <label class="f">Limite mensal<input name="glimit" inputmode="decimal" placeholder="0,00" value="${esc(keep.limit??(g&&g.limit?fmtInput(g.limit):""))}"></label>
+      <label class="f">Limite mensal<input name="glimit" inputmode="numeric" data-money placeholder="0,00" value="${esc(keep.limit??(g&&g.limit?fmtInput(g.limit):""))}"></label>
       <button class="btn" type="submit">Salvar</button>
       ${g?`<button class="btn danger" type="button" id="gDel">Desfazer combinação</button>`:""}
       <button class="btn sec" type="button" id="gBack">Voltar</button></form>`);
@@ -1026,7 +1035,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.6";
+const APP_VERSION = "1.4.7";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
