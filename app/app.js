@@ -37,7 +37,7 @@ function defaultConfig(){
     invoicePaid:{}
   };
 }
-const S = { cfg:null, months:{}, month: ymOf(todayStr()), tab:"home", txFilter:"all", txSearch:"", fAcc:new Set(), fCat:new Set(), cardSel:null, cardInv:null, reportTable:false, ready:false, live:false };
+const S = { cfg:null, months:{}, month: ymOf(todayStr()), tab:"home", txFilter:"all", txSearch:"", fAcc:new Set(), fCat:new Set(), fRec:new Set(), cardSel:null, cardInv:null, reportTable:false, ready:false, live:false };
 
 /* ============ Consultas ============ */
 const acc = id => S.cfg.accounts.find(a=>a.id===id);
@@ -142,10 +142,14 @@ async function fileToLogo(file){
   const url = URL.createObjectURL(file);
   try{
     const img = await new Promise((res,rej)=>{ const i = new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
-    // Mantém a imagem como enviada (sem cortar margens nem acrescentar fundo); só reduz o tamanho, preservando a proporção.
-    const M = 160, k = Math.min(1, M/Math.max(img.width, img.height));
-    const w = Math.max(1, Math.round(img.width*k)), h = Math.max(1, Math.round(img.height*k));
-    const c = document.createElement("canvas"); c.width = w; c.height = h; c.getContext("2d").drawImage(img, 0, 0, w, h);
+    // Não corta as margens da imagem: ela entra inteira num quadrado (para caber no círculo).
+    // Se não for quadrada, o espaço que sobra é preenchido com a cor do canto da própria imagem.
+    const N = 160, k = Math.min(N/img.width, N/img.height);
+    const w = img.width*k, h = img.height*k;
+    const c = document.createElement("canvas"); c.width = c.height = N; const g = c.getContext("2d", {willReadFrequently:true});
+    g.drawImage(img, 0, 0, 1, 1, 0, 0, 1, 1); const bg = g.getImageData(0, 0, 1, 1).data; g.clearRect(0, 0, N, N);
+    if(bg[3] >= 16){ g.fillStyle = `rgb(${bg[0]},${bg[1]},${bg[2]})`; g.fillRect(0, 0, N, N); }
+    g.drawImage(img, (N-w)/2, (N-h)/2, w, h);
     let out = c.toDataURL("image/webp", 0.88); if(!out.startsWith("data:image/webp")) out = c.toDataURL("image/png");
     return safeLogo(out);
   } finally { URL.revokeObjectURL(url); }
@@ -367,13 +371,14 @@ function viewTx(){
   if(f==="inv") items = items.filter(i=>i.type==="rend" || (i.type==="tr" && (isInv(i.accountId) || isInv(i.toAccountId))));
   if(S.fAcc.size) items = items.filter(i=> i.cardId ? S.fAcc.has("c:"+i.cardId) : (S.fAcc.has("a:"+i.accountId) || (i.type==="tr" && S.fAcc.has("a:"+i.toAccountId))));
   if(S.fCat.size) items = items.filter(i=>i.catId && S.fCat.has(i.catId));
+  if(S.fRec.size) items = items.filter(i=>S.fRec.has(recKind(i)));
   if(q) items = items.filter(i=>(i.desc||"").toLowerCase().includes(q) || (cat(i.catId)?.name||"").toLowerCase().includes(q) || (i.notes||"").toLowerCase().includes(q));
   items.sort((a,b)=> a.date===b.date ? (b.created||0)-(a.created||0) : (a.date<b.date?1:-1));
-  const nF = (f!=="all"?1:0) + S.fAcc.size + S.fCat.size;
+  const nF = (f!=="all"?1:0) + S.fAcc.size + S.fCat.size + S.fRec.size;
   let h = `<div class="txbar"><input class="search" id="txSearch" type="search" placeholder="🔍  Buscar" value="${esc(S.txSearch)}"><button class="fbtn ${nF?"on":""}" data-act="filters">Filtros${nF?` (${nF})`:""}</button></div>`;
   if(nF){
     const TL = {exp:"Despesas",inc:"Receitas",tr:"Transferências",pend:"Pendentes",inv:"Investimentos"};
-    h += `<div class="chips">` + (f!=="all"?`<button class="chip sel" data-act="rmType">${TL[f]} ✕</button>`:"") + [...S.fAcc].map(k=>`<button class="chip sel" data-act="rmAcc" data-k="${k}">${esc(srcLabel(k))} ✕</button>`).join("") + [...S.fCat].map(id=>`<button class="chip sel" data-act="rmCat" data-k="${id}">${cat(id)?.icon||""} ${esc(cat(id)?.name||"?")} ✕</button>`).join("") + `<button class="chip" data-act="clearF">Limpar</button></div>`;
+    h += `<div class="chips">` + (f!=="all"?`<button class="chip sel" data-act="rmType">${TL[f]} ✕</button>`:"") + [...S.fRec].map(k=>`<button class="chip sel" data-act="rmRec" data-k="${k}">${REC_LABEL[k]} ✕</button>`).join("") + [...S.fAcc].map(k=>`<button class="chip sel" data-act="rmAcc" data-k="${k}">${esc(srcLabel(k))} ✕</button>`).join("") + [...S.fCat].map(id=>`<button class="chip sel" data-act="rmCat" data-k="${id}">${cat(id)?.icon||""} ${esc(cat(id)?.name||"?")} ✕</button>`).join("") + `<button class="chip" data-act="clearF">Limpar</button></div>`;
   }
   if(!items.length) return h + `<div class="empty">Nenhum lançamento${nF||q?" com esses filtros":" neste mês"}.<br>Toque em <b>+</b> para adicionar.</div>`;
   let inc=0,exp=0; items.forEach(i=>{ if(i.type==="inc") inc+=i.amount; if(i.type==="exp") exp+=i.amount; });
@@ -383,8 +388,11 @@ function viewTx(){
   return h;
 }
 
+/* Fixo, parcelado ou avulso (nem um nem outro) */
+const REC_LABEL = {fixo:"Fixos", parc:"Parcelados", avulso:"Avulsos"};
+function recKind(i){ return i.inst ? "parc" : (i.fixed ? "fixo" : "avulso"); }
 function filtersSheet(){
-  let type = S.txFilter; const sa = new Set(S.fAcc), sc = new Set(S.fCat);
+  let type = S.txFilter; const sa = new Set(S.fAcc), sc = new Set(S.fCat), sr = new Set(S.fRec);
   const used = new Set(monthItems(S.month).map(i=>i.catId));
   const accItems = [...S.cfg.accounts.filter(a=>!a.archived).map(a=>({k:"a:"+a.id, name:a.name, icon:accIcSm(a)})), ...S.cfg.cards.filter(c=>!c.archived).map(c=>({k:"c:"+c.id, name:c.name, icon:cardIcSm(c)}))];
   const catItems = kind => S.cfg.categories.filter(c=>c.kind===kind && (!c.archived || used.has(c.id))).sort((a,b)=>(used.has(b.id)-used.has(a.id)) || a.name.localeCompare(b.name)).map(c=>({k:c.id, name:c.name, icon:c.icon}));
@@ -394,6 +402,8 @@ function filtersSheet(){
     openSheet(`<h3>Filtros</h3>
       <div class="pgh"><span>Tipo</span></div>
       <div class="pills">${[["all","Todos"],["exp","Despesas"],["inc","Receitas"],["tr","Transferências"],["inv","Investimentos"],["pend","Pendentes"]].map(([k,l])=>`<button type="button" class="pill ${type===k?"on":""}" data-type="${k}">${l}</button>`).join("")}</div>
+      <div class="pgh"><span>Repetição</span></div>
+      <div class="pills">${Object.entries(REC_LABEL).map(([k,l])=>`<button type="button" class="pill ${sr.has(k)?"on":""}" data-rec="${k}">${l}</button>`).join("")}</div>
       <div class="pgh"><span>Contas e cartões</span>${sa.size?`<button class="linkbtn" data-clr="a">Limpar</button>`:""}</div>${pills(accItems, sa, "a")}
       <div class="pgh"><span>Categorias de despesa</span>${[...sc].some(k=>cat(k)?.kind==="exp")?`<button class="linkbtn" data-clr="e">Limpar</button>`:""}</div>${pills(catItems("exp"), sc, "c")}
       <div class="pgh"><span>Categorias de receita</span>${[...sc].some(k=>cat(k)?.kind==="inc")?`<button class="linkbtn" data-clr="i">Limpar</button>`:""}</div>${pills(catItems("inc"), sc, "c")}
@@ -401,10 +411,11 @@ function filtersSheet(){
     $("#sheet").scrollTop = st;
     const sh = $("#sheet");
     sh.querySelectorAll("[data-type]").forEach(b=>b.onclick=()=>{ type=b.dataset.type; draw(); });
+    sh.querySelectorAll("[data-rec]").forEach(b=>b.onclick=()=>{ sr.has(b.dataset.rec)?sr.delete(b.dataset.rec):sr.add(b.dataset.rec); draw(); });
     sh.querySelectorAll("[data-grp]").forEach(b=>b.onclick=()=>{ const set=b.dataset.grp==="a"?sa:sc; set.has(b.dataset.k)?set.delete(b.dataset.k):set.add(b.dataset.k); draw(); });
     sh.querySelectorAll("[data-clr]").forEach(b=>b.onclick=()=>{ const w=b.dataset.clr; if(w==="a") sa.clear(); else [...sc].forEach(k=>{ if(cat(k)?.kind===(w==="e"?"exp":"inc")) sc.delete(k); }); draw(); });
-    $("#pkClear").onclick=()=>{ S.txFilter="all"; S.fAcc=new Set(); S.fCat=new Set(); closeSheet(); render(); };
-    $("#pkOk").onclick=()=>{ S.txFilter=type; S.fAcc=sa; S.fCat=sc; closeSheet(); render(); window.scrollTo(0,0); };
+    $("#pkClear").onclick=()=>{ S.txFilter="all"; S.fAcc=new Set(); S.fCat=new Set(); S.fRec=new Set(); closeSheet(); render(); };
+    $("#pkOk").onclick=()=>{ S.txFilter=type; S.fAcc=sa; S.fCat=sc; S.fRec=sr; closeSheet(); render(); window.scrollTo(0,0); };
   };
   draw();
 }
@@ -1015,7 +1026,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.4";
+const APP_VERSION = "1.4.5";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1325,7 +1336,7 @@ document.addEventListener("click", e=>{
   const a = t.dataset.act, id = t.dataset.id;
   if(a==="toggle"){ e.stopPropagation(); const it=findItem(id); if(it){ it.paid=!it.paid; commit([ymOf(it.date)]); } return; }
   if(a==="edit"){ const it=findItem(id); if(it) (it.type==="rend" ? rendForm(it) : txForm(it)); }
-  else if(a==="tab"){ S.tab=t.dataset.tab; if(t.dataset.filter){ S.txFilter=t.dataset.filter; S.fAcc.clear(); S.fCat.clear(); } render(); window.scrollTo(0,0); }
+  else if(a==="tab"){ S.tab=t.dataset.tab; if(t.dataset.filter){ S.txFilter=t.dataset.filter; S.fAcc.clear(); S.fCat.clear(); S.fRec.clear(); } render(); window.scrollTo(0,0); }
   else if(a==="filter"){ S.txFilter=t.dataset.f; render(); }
   else if(a==="filters") filtersSheet();
   else if(a==="togglePend") togglePend();
@@ -1342,8 +1353,9 @@ document.addEventListener("click", e=>{
   else if(a==="rmType"){ S.txFilter="all"; render(); }
   else if(a==="rmAcc"){ S.fAcc.delete(t.dataset.k); render(); }
   else if(a==="rmCat"){ S.fCat.delete(t.dataset.k); render(); }
-  else if(a==="clearF"){ S.fAcc.clear(); S.fCat.clear(); S.txFilter="all"; render(); }
-  else if(a==="catfilter"){ const ids = t.dataset.id ? [t.dataset.id] : (t.dataset.ids||"").split(",").filter(Boolean); S.fCat=new Set(ids); S.fAcc.clear(); S.txFilter="all"; S.txSearch=""; S.tab="tx"; render(); window.scrollTo(0,0); }
+  else if(a==="rmRec"){ S.fRec.delete(t.dataset.k); render(); }
+  else if(a==="clearF"){ S.fAcc.clear(); S.fCat.clear(); S.fRec.clear(); S.txFilter="all"; render(); }
+  else if(a==="catfilter"){ const ids = t.dataset.id ? [t.dataset.id] : (t.dataset.ids||"").split(",").filter(Boolean); S.fCat=new Set(ids); S.fAcc.clear(); S.fRec.clear(); S.txFilter="all"; S.txSearch=""; S.tab="tx"; render(); window.scrollTo(0,0); }
   else if(a==="goinv"){ S.tab="cards"; S.cardSel=t.dataset.card; S.cardInv=t.dataset.key; S.month=t.dataset.key; render(); window.scrollTo(0,0); }
   else if(a==="selcard"){ S.cardSel=id; render(); }
   else if(a==="payinv") payInvoice(t.dataset.key);
