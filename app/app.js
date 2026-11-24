@@ -1035,7 +1035,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.7";
+const APP_VERSION = "1.4.8";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1043,14 +1043,14 @@ const DEMO = new URLSearchParams(location.search).has("demo");
 const LOCK_AFTER_MS = 2 * 60 * 1000;
 
 /* ============ Dados: aparelho (IndexedDB) + Google Drive ============ */
-const Store = { fileId:null, remoteVersion:null, dirty:false, lastBackup:null, everConnected:false, token:null, tokenExp:0, syncing:false, error:null, lastSync:null };
+const Store = { fileId:null, remoteVersion:null, folderId:null, copiesId:null, organized:false, dirty:false, lastBackup:null, everConnected:false, token:null, tokenExp:0, syncing:false, error:null, lastSync:null };
 let idbP = null;
 function idb(){ return idbP ||= new Promise((res,rej)=>{ const r=indexedDB.open("bolso",1); r.onupgradeneeded=()=>r.result.createObjectStore("kv"); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
 async function kvGet(k){ const db=await idb(); return new Promise((res,rej)=>{ const q=db.transaction("kv").objectStore("kv").get(k); q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error); }); }
 async function kvSet(k,v){ const db=await idb(); return new Promise((res,rej)=>{ const tx=db.transaction("kv","readwrite"); tx.objectStore("kv").put(v,k); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
 
 function snapshot(){ return {app:"bolso", schema:1, savedAt:new Date().toISOString(), appVersion:APP_VERSION, config:S.cfg, months:S.months}; }
-function syncMeta(){ return {fileId:Store.fileId, remoteVersion:Store.remoteVersion, dirty:Store.dirty, lastBackup:Store.lastBackup, everConnected:Store.everConnected, lastSync:Store.lastSync}; }
+function syncMeta(){ return {fileId:Store.fileId, remoteVersion:Store.remoteVersion, folderId:Store.folderId, copiesId:Store.copiesId, organized:Store.organized, dirty:Store.dirty, lastBackup:Store.lastBackup, everConnected:Store.everConnected, lastSync:Store.lastSync}; }
 let persistT = null;
 function persistLocal(now){
   if(DEMO || !S.cfg) return;
@@ -1144,16 +1144,50 @@ async function gfetch(url, opts={}){
   if(!r.ok) throw {code:"http", status:r.status};
   return r;
 }
-async function driveFind(name){ const q = encodeURIComponent(`name='${name}' and trashed=false`); const r = await gfetch(`${DAPI}/files?q=${q}&spaces=drive&orderBy=modifiedTime desc&fields=files(id,version)`); const j = await r.json(); return (j.files||[])[0] || null; }
-async function driveMeta(id){ const r = await gfetch(`${DAPI}/files/${id}?fields=id,version,trashed`); return r.json(); }
+/* Tudo fica na pasta "Bolso" do Drive: bolso-dados.json na pasta e as cópias (backups mensais e
+   conflitos) em "Bolso/Cópias". Com o escopo drive.file o app só enxerga o que ele mesmo criou.
+   "Mudou no Drive?" é decidido pelo conteúdo (md5Checksum), não pelo número de versão: o Drive às vezes
+   aumenta a versão sem mudar o conteúdo, o que gerava avisos de conflito falsos. */
+const FOLDER = "Bolso", COPIES = "Cópias", FOLDER_MIME = "application/vnd.google-apps.folder";
+const qs = s => s.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+async function driveList(q, fields="files(id,name,parents)"){ const r = await gfetch(`${DAPI}/files?q=${encodeURIComponent(q+" and trashed=false")}&spaces=drive&orderBy=modifiedTime desc&pageSize=200&fields=${fields}`); return (await r.json()).files || []; }
+async function driveFind(name, parent){ return (await driveList(`name='${qs(name)}'`+(parent?` and '${parent}' in parents`:""), "files(id,version,md5Checksum)"))[0] || null; }
+async function driveMeta(id){ const r = await gfetch(`${DAPI}/files/${id}?fields=id,version,md5Checksum,trashed,parents`); return r.json(); }
 async function driveRead(id){ const r = await gfetch(`${DAPI}/files/${id}?alt=media`); return r.json(); }
-async function driveCreate(name, obj){
+async function driveCreate(name, obj, parent){
   const b = "bolso" + Math.random().toString(36).slice(2);
-  const body = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({name, mimeType:"application/json"})}\r\n--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(obj)}\r\n--${b}--`;
-  const r = await gfetch(`${UAPI}/files?uploadType=multipart&fields=id,version`, {method:"POST", headers:{"Content-Type":`multipart/related; boundary=${b}`}, body});
+  const meta = {name, mimeType:"application/json"}; if(parent) meta.parents = [parent];
+  const body = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(obj)}\r\n--${b}--`;
+  const r = await gfetch(`${UAPI}/files?uploadType=multipart&fields=id,version,md5Checksum`, {method:"POST", headers:{"Content-Type":`multipart/related; boundary=${b}`}, body});
   return r.json();
 }
-async function driveUpdate(id, obj){ const r = await gfetch(`${UAPI}/files/${id}?uploadType=media&fields=id,version`, {method:"PATCH", headers:{"Content-Type":"application/json; charset=UTF-8"}, body:JSON.stringify(obj)}); return r.json(); }
+async function driveUpdate(id, obj){ const r = await gfetch(`${UAPI}/files/${id}?uploadType=media&fields=id,version,md5Checksum`, {method:"PATCH", headers:{"Content-Type":"application/json; charset=UTF-8"}, body:JSON.stringify(obj)}); return r.json(); }
+async function driveFolder(name, parent){
+  const f = (await driveList(`name='${qs(name)}' and mimeType='${FOLDER_MIME}'`+(parent?` and '${parent}' in parents`:"")))[0];
+  if(f) return f.id;
+  const r = await gfetch(`${DAPI}/files?fields=id`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({name, mimeType:FOLDER_MIME, ...(parent?{parents:[parent]}:{})})});
+  return (await r.json()).id;
+}
+async function driveMove(id, to){
+  const m = await driveMeta(id); const from = (m.parents||[]).filter(p=>p!==to);
+  if((m.parents||[]).includes(to) && !from.length) return;
+  await gfetch(`${DAPI}/files/${id}?addParents=${to}${from.length?`&removeParents=${from.join(",")}`:""}&fields=id`, {method:"PATCH", headers:{"Content-Type":"application/json"}, body:"{}"});
+}
+async function ensureFolders(){
+  if(Store.folderId){ const m = await driveMeta(Store.folderId).catch(()=>({trashed:true})); if(m.trashed) Store.folderId = Store.copiesId = null; }
+  if(!Store.folderId) Store.folderId = await driveFolder(FOLDER);
+  if(!Store.copiesId) Store.copiesId = await driveFolder(COPIES, Store.folderId);
+}
+// Uma vez por aparelho: leva para as pastas os arquivos do Bolso que ficaram soltos (versões até 1.4.7).
+async function organizeDrive(){
+  if(Store.organized) return;
+  for(const f of await driveList(`name contains 'bolso-' and mimeType='application/json'`)){
+    const to = f.name===DRIVE_FILE ? Store.folderId : (/^bolso-(backup|conflito)-/.test(f.name) ? Store.copiesId : null);
+    if(to && !(f.parents||[]).includes(to)) await driveMove(f.id, to).catch(()=>{});
+  }
+  Store.organized = true;
+}
+const sameData = (a,b)=> JSON.stringify({c:a.config,m:a.months}) === JSON.stringify({c:b.config,m:b.months});
 
 /* ---- Sincronização ---- */
 let syncT = null;
@@ -1164,23 +1198,29 @@ async function syncNow(){
   if(!hasToken()){ renderSync(); return; }
   Store.syncing = true; renderSync();
   try{
+    await ensureFolders();
     if(Store.fileId){ const m = await driveMeta(Store.fileId).catch(e=>{ if(e.code==="http" && e.status===404) return {trashed:true}; throw e; }); if(m.trashed){ Store.fileId = null; Store.remoteVersion = null; } }
     if(!Store.fileId){ const f = await driveFind(DRIVE_FILE); if(f){ Store.fileId = f.id; Store.remoteVersion = null; } }
+    await organizeDrive();
     if(!Store.fileId){
       if(!S.cfg){ S.cfg = defaultConfig(); S.months = {}; }
-      const c = await driveCreate(DRIVE_FILE, snapshot()); Store.fileId = c.id; Store.remoteVersion = c.version; Store.dirty = false;
+      const c = await driveCreate(DRIVE_FILE, snapshot(), Store.folderId); Store.fileId = c.id; Store.remoteVersion = c.md5Checksum; Store.dirty = false;
     } else {
       const m = await driveMeta(Store.fileId);
-      const remoteChanged = m.version !== Store.remoteVersion;
+      const old = /^\d+$/.test(String(Store.remoteVersion||"")); // salvo pela versão antiga do app (número de versão)
+      let remoteChanged = old ? m.version !== Store.remoteVersion : m.md5Checksum !== Store.remoteVersion;
+      let d = null;
+      if(remoteChanged && Store.dirty && S.cfg){ d = await driveRead(Store.fileId); if(validBackup(d) && sameData(d, snapshot())){ remoteChanged = false; Store.dirty = false; } }
       if(remoteChanged && (!Store.dirty || !S.cfg)){
-        const d = await driveRead(Store.fileId);
+        d = d || await driveRead(Store.fileId);
         if(!validBackup(d)) throw {code:"badfile"};
-        applyData(d); Store.remoteVersion = m.version; Store.dirty = false; render();
+        applyData(d); Store.dirty = false; render();
       } else if(remoteChanged && Store.dirty){
         await resolveConflict(m);
       } else if(Store.dirty){
-        const u = await driveUpdate(Store.fileId, snapshot()); Store.remoteVersion = u.version; Store.dirty = false;
+        const u = await driveUpdate(Store.fileId, snapshot()); m.md5Checksum = u.md5Checksum; Store.dirty = false;
       }
+      if(!Store.dirty) Store.remoteVersion = m.md5Checksum;
     }
     await monthlyBackup();
     Store.lastSync = Date.now(); Store.error = null;
@@ -1199,18 +1239,20 @@ async function resolveConflict(m){
   if(!choice) return;
   const stamp = new Date().toISOString().slice(0,16).replace(/[-:T]/g,"");
   if(choice==="remote"){
-    await driveCreate(`bolso-conflito-${stamp}-aparelho.json`, snapshot());
+    await driveCreate(`bolso-conflito-${stamp}-aparelho.json`, snapshot(), Store.copiesId);
     const d = await driveRead(Store.fileId); if(!validBackup(d)) throw {code:"badfile"};
-    applyData(d); Store.remoteVersion = m.version; Store.dirty = false; render();
+    applyData(d); Store.dirty = false; render();
   } else {
-    const d = await driveRead(Store.fileId); await driveCreate(`bolso-conflito-${stamp}-drive.json`, d);
-    const u = await driveUpdate(Store.fileId, snapshot()); Store.remoteVersion = u.version; Store.dirty = false;
+    const d = await driveRead(Store.fileId); await driveCreate(`bolso-conflito-${stamp}-drive.json`, d, Store.copiesId);
+    const u = await driveUpdate(Store.fileId, snapshot()); m.md5Checksum = u.md5Checksum; Store.dirty = false;
   }
 }
 async function monthlyBackup(){
   const ym = ymOf(todayStr());
   if(!S.cfg || Store.lastBackup === ym) return;
-  await driveCreate(`bolso-backup-${ym}.json`, snapshot()); Store.lastBackup = ym;
+  const name = `bolso-backup-${ym}.json`;
+  if(!await driveFind(name, Store.copiesId)) await driveCreate(name, snapshot(), Store.copiesId); // um por mês, mesmo com vários aparelhos
+  Store.lastBackup = ym;
 }
 
 function renderSync(){
