@@ -211,12 +211,7 @@ function rowTx(i, opts={}){
   const cls = isRend ? (i.amount>=0?"inc":"exp") : i.type==="inc" ? "inc" : (i.type==="exp" ? "" : "t2");
   const pending = !i.paid && !i.cardId;
   const sub = opts.showDate ? `${i.date.slice(8)}/${i.date.slice(5,7)}` : (pending ? (i.type==="inc"?"a receber":"a pagar") : "");
-  // pendente: círculo vazio (marca como pago). Na aba Lançamentos, pago aparece preenchido e tocar desmarca.
-  const canToggle = !i.cardId && (i.type==="exp" || i.type==="inc") && !opts.noCheck;
-  const pw = i.type==="inc" ? "recebido" : "pago";
-  const chk = canToggle && pending ? `<button class="chk" data-act="toggle" data-id="${i.id}" aria-label="Marcar como ${pw}" title="Marcar como ${pw}">✓</button>`
-    : canToggle && opts.paidCheck ? `<button class="chk on" data-act="toggle" data-id="${i.id}" aria-label="Marcar como não ${pw}" title="Marcar como não ${pw}">✓</button>`
-    : opts.paidCheck ? `<span class="chk ghost" aria-hidden="true"></span>` : ""; // mantém os valores alinhados
+  const chk = (pending && !opts.noCheck) ? `<button class="chk" data-act="toggle" data-id="${i.id}" aria-label="Marcar como ${i.type==="inc"?"recebido":"pago"}" title="Marcar como ${i.type==="inc"?"recebido":"pago"}">✓</button>` : "";
   return `<div class="row click ${pending?"pend":""}" data-act="edit" data-id="${i.id}">
     <div class="ic">${icon}</div>
     <div class="mid"><div class="ttl">${esc(i.desc|| (isRend?"Rendimento":trKind) || (c?.name) || "Lançamento")}</div><div class="meta">${trKind?trKind+" · ":""}${esc(where)}${tags?` · ${esc(tags)}`:""}</div></div>
@@ -397,7 +392,7 @@ function viewTx(){
   if(!items.length) return h + `<div class="empty">Nenhum lançamento${nF||q?" com esses filtros":" neste mês"}.<br>Toque em <b>+</b> para adicionar.</div>`;
   let inc=0,exp=0; items.forEach(i=>{ if(i.type==="inc") inc+=i.amount; if(i.type==="exp") exp+=i.amount; });
   let cur = null;
-  items.forEach(i=>{ if(i.date!==cur){ if(cur) h+=`</div>`; cur=i.date; h+=`<div class="dayhead">${dayLabel(i.date)}</div><div class="list">`; } h += rowTx(i,{paidCheck:true}); });
+  items.forEach(i=>{ if(i.date!==cur){ if(cur) h+=`</div>`; cur=i.date; h+=`<div class="dayhead">${dayLabel(i.date)}</div><div class="list">`; } h += rowTx(i); });
   h += `</div><div class="totbar"><span>${items.length} lançamento${items.length>1?"s":""}</span><span><span class="inc">+${money(inc)}</span> · <span class="exp">−${money(exp)}</span></span></div>`;
   return h;
 }
@@ -1429,7 +1424,7 @@ document.addEventListener("click", e=>{
   const t = e.target.closest("[data-act],[data-tab]"); if(!t) return;
   if(t.dataset.tab && !t.dataset.act){ S.tab=t.dataset.tab; render(); window.scrollTo(0,0); return; }
   const a = t.dataset.act, id = t.dataset.id;
-  if(a==="toggle"){ e.stopPropagation(); const it=findItem(id); if(it){ it.paid=!it.paid; commit([ymOf(it.date)]); toast(it.paid ? (it.type==="inc"?"Marcado como recebido.":"Marcado como pago.") : (it.type==="inc"?"Marcado como não recebido.":"Marcado como não pago.")); } return; }
+  if(a==="toggle"){ e.stopPropagation(); const it=findItem(id); if(it){ it.paid=!it.paid; commit([ymOf(it.date)]); } return; }
   if(a==="edit"){ const it=findItem(id); if(it) (it.type==="rend" ? rendForm(it) : txForm(it)); }
   else if(a==="tab"){ S.tab=t.dataset.tab; if(t.dataset.filter){ S.txFilter=t.dataset.filter; S.fAcc.clear(); S.fCat.clear(); S.fRec.clear(); } render(); window.scrollTo(0,0); }
   else if(a==="filter"){ S.txFilter=t.dataset.f; render(); }
