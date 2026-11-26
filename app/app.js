@@ -814,11 +814,13 @@ async function saveTx(existing, type, fd){
   const touched = [];
   if(existing){
     let scope = "one";
-    if(existing.group){ scope = await confirmBox(existing.inst?"Lançamento parcelado":"Lançamento fixo","Aplicar a alteração a quais lançamentos? A data só muda neste.",[{label:"Somente este",value:"one"},{label:"Este e os próximos",value:"next"},{label:"Todos da série",value:"all"}]); if(!scope) return; }
+    if(existing.group){ scope = await confirmBox(existing.inst?"Lançamento parcelado":"Lançamento fixo","Aplicar a alteração a quais lançamentos? A data só muda neste; o pago/não pago muda nos escolhidos.",[{label:"Somente este",value:"one"},{label:"Este e os próximos",value:"next"},{label:"Todos da série",value:"all"}]); if(!scope) return; }
+    const paidChanged = !base.cardId && !!existing.paid !== !!base.paid;
     const apply = (it, isThis)=>{
       const old = ymOf(it.date);
       Object.assign(it, {desc:base.desc, notes:base.notes, catId:base.catId, accountId:base.accountId, cardId:base.cardId, toAccountId:base.toAccountId, amount});
       if(isThis){ it.date = base.date; it.paid = base.paid; }
+      else if(paidChanged && !it.cardId) it.paid = base.paid;
       touched.push(old);
       if(ymOf(it.date)!==old){ removeItem(it.id); putItem(it); touched.push(ymOf(it.date)); }
     };
@@ -1050,7 +1052,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.9";
+const APP_VERSION = "1.4.10";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
