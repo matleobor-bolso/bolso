@@ -248,7 +248,7 @@ function viewHome(){
   // contas
   const accs = S.cfg.accounts.filter(a=>!a.archived && accKind(a)==="dia");
   h += `<div class="card"><h2>Contas do dia a dia <span class="hbtns"><button class="linkbtn" data-act="reorder" data-what="dia" aria-label="Reordenar contas">⇅ Ordenar</button><button class="linkbtn" data-act="newAccount">+ Nova</button></span></h2>`;
-  accs.forEach(a=>{ h += `<div class="row click" data-act="editAccount" data-id="${a.id}"><div class="ic">${accIc(a)}</div><div class="mid"><div class="ttl">${esc(a.name)}</div></div><div class="amt">${money(accountBalance(a.id))}</div></div>`; });
+  accs.forEach(a=>{ h += `<div class="row click" data-act="accfilter" data-k="a:${a.id}"><div class="ic">${accIc(a)}</div><div class="mid"><div class="ttl">${esc(a.name)}</div></div><div class="amt">${money(accountBalance(a.id))}</div></div>`; });
   if(!accs.length) h += `<div class="empty">Nenhuma conta ainda.</div>`;
   h += `</div>`;
 
@@ -258,7 +258,7 @@ function viewHome(){
     const tot = totalBalance({}, "inv"); const rd = rendIn(ym);
     h += `<div class="card"><h2>Investimentos <span class="hbtns"><button class="linkbtn" data-act="reorder" data-what="inv" aria-label="Reordenar investimentos">⇅ Ordenar</button><button class="linkbtn" data-act="tab" data-tab="inv">Ver tudo</button></span></h2>
       <div class="invtot"><b>${money(tot)}</b>${rd?`<span class="${rd>=0?"inc":"exp"}">${rd>=0?"+":"−"}${money(Math.abs(rd))} de rendimento em ${MES3[+ym.slice(5)-1]}</span>`:""}</div>`;
-    invs.forEach(a=>h+=invRow(a,true));
+    invs.forEach(a=>h+=invRow(a,true).replace('data-act="invOpen"', `data-act="accfilter" data-k="a:${a.id}"`));
     h += `<div class="patr">Patrimônio total <b>${money(now + tot)}</b></div></div>`;
   }
 
@@ -267,7 +267,7 @@ function viewHome(){
   if(cards.length){
     h += `<div class="card"><h2>Cartões <span class="hbtns"><button class="linkbtn" data-act="reorder" data-what="cards" aria-label="Reordenar cartões">⇅ Ordenar</button><button class="linkbtn" data-act="tab" data-tab="cards">Faturas</button></span></h2>`;
     cards.forEach(c=>{ const k=currentInvoiceKey(c); const t=invoiceTotal(c.id,k); const used=cardUsed(c.id); const pct=c.limit?Math.min(100,used/c.limit*100):0; const due=invoiceDates(k,c).due;
-      h += `<div class="row click" data-act="goinv" data-card="${c.id}" data-key="${k}" style="flex-wrap:wrap"><div class="ic">${cardIc(c)}</div><div class="mid"><div class="ttl">${esc(c.name)}</div><div class="meta">vence ${due.slice(8)}/${due.slice(5,7)}${c.limit?` · disponível ${money(c.limit-used)}`:""}</div></div><div class="amt">${money(t)}</div>
+      h += `<div class="row click" data-act="accfilter" data-k="c:${c.id}" style="flex-wrap:wrap"><div class="ic">${cardIc(c)}</div><div class="mid"><div class="ttl">${esc(c.name)}</div><div class="meta">vence ${due.slice(8)}/${due.slice(5,7)}${c.limit?` · disponível ${money(c.limit-used)}`:""}</div></div><div class="amt">${money(t)}</div>
       ${c.limit?`<div class="progress thin" style="flex-basis:100%"><i style="width:${pct}%" class="${pct>=90?"over":""}"></i></div>`:""}</div>`; });
     h += `</div>`;
   }
@@ -441,7 +441,7 @@ function viewCards(){
     <div class="mut" style="font-size:13px;margin-top:4px">Fecha ${d.close.slice(8)}/${d.close.slice(5,7)} · vence ${d.due.slice(8)}/${d.due.slice(5,7)}${paidInfo?` · paga com ${esc(acc(paidInfo.accountId)?.name||"conta")}`:""}</div>
     <div class="btns" style="margin-top:12px">
       ${paidInfo?`<button class="btn sec" data-act="unpayinv" data-key="${key}">Reabrir fatura</button>`:(total>0?`<button class="btn" data-act="payinv" data-key="${key}">Pagar fatura</button>`:"")}
-      <button class="btn sec" data-act="editCard" data-id="${c.id}">Editar cartão</button>
+
     </div></div>`;
   h += `<div class="sectiontitle">Lançamentos da fatura</div>`;
   h += items.length ? `<div class="list">${items.map(i=>rowTx(i,{showDate:true})).join("")}</div>` : `<div class="empty">Sem compras nesta fatura.</div>`;
@@ -580,7 +580,6 @@ function invSheet(id){
   const mv = allItems().filter(i=>(i.type==="rend" && i.accountId===id) || (i.type==="tr" && (i.accountId===id||i.toAccountId===id))).sort((x,y)=>x.date<y.date?1:-1).slice(0,8);
   openSheet(`<h3>${accIcSm(a,"🐷")} ${esc(a.name)}</h3><div class="list" style="margin-bottom:12px">${invRow(a,false).replace('data-act="invOpen"','')}</div>
     <div class="btns"><button class="btn" data-act="updBal" data-id="${id}">Atualizar saldo</button><button class="btn sec" data-act="aporte" data-id="${id}">Aportar</button><button class="btn sec" data-act="resgate" data-id="${id}">Resgatar</button></div>
-    <button class="btn sec" data-act="editAccount" data-id="${id}">Editar conta e meta</button>
     <div class="pgh"><span>Últimos movimentos</span></div>${mv.length?`<div class="list">${mv.map(i=>rowTx(i,{showDate:true})).join("")}</div>`:`<div class="mut" style="font-size:14px">Sem movimentos ainda.</div>`}`);
 }
 function updBalSheet(onlyId){
@@ -676,19 +675,24 @@ function bindChipPickers(root, onChange){
 
 /* ============ Sheets / formulários ============ */
 function openSheet(html){ $("#sheet").innerHTML = `<div class="grab"></div>`+html; $("#ov").classList.add("open"); }
-function closeSheet(){ $("#ov").classList.remove("open"); $("#sheet").innerHTML=""; }
-$("#ov").addEventListener("click", e=>{ if(e.target.id==="ov") closeSheet(); });
+/* Volta de um formulário para a lista de onde ele foi aberto (Configurações → Contas → conta → fora = Contas). */
+let sheetBack = null, sheetCur = null;
+function closeSheet(){ $("#ov").classList.remove("open"); $("#sheet").innerHTML=""; sheetBack = sheetCur = null; }
+function sheetDone(){ if(sheetBack){ const b = sheetBack; sheetBack = null; b(); } else closeSheet(); }
+$("#ov").addEventListener("click", e=>{ if(e.target.id==="ov") sheetDone(); });
 
 function confirmBox(title, text, buttons){
   return new Promise(res=>{
     openSheet(`<h3>${esc(title)}</h3><p class="t2" style="margin-top:-6px">${esc(text)}</p>${buttons.map((b,i)=>`<button class="btn ${b.cls||""}" data-cb="${i}">${esc(b.label)}</button>`).join("")}<button class="btn sec" data-cb="-1">Cancelar</button>`);
-    $("#sheet").querySelectorAll("[data-cb]").forEach(el=>el.onclick=()=>{ const i=+el.dataset.cb; closeSheet(); res(i<0?null:buttons[i].value); });
+    const keep = [sheetBack, sheetCur];
+    $("#sheet").querySelectorAll("[data-cb]").forEach(el=>el.onclick=()=>{ const i=+el.dataset.cb; closeSheet(); [sheetBack, sheetCur] = keep; res(i<0?null:buttons[i].value); });
   });
 }
 
-function catOptions(kind, sel){ return S.cfg.categories.filter(c=>c.kind===kind && !c.archived).map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${c.icon} ${esc(c.name)}</option>`).join(""); }
-function accOptions(sel){ return S.cfg.accounts.filter(a=>!a.archived).map(a=>`<option value="a:${a.id}" ${("a:"+a.id)===sel?"selected":""}>${a.icon||"🏦"} ${esc(a.name)}</option>`).join(""); }
-function srcOptions(sel, withCards){ let h = `<optgroup label="Contas">${accOptions(sel)}</optgroup>`; if(withCards && S.cfg.cards.length) h += `<optgroup label="Cartões de crédito">${S.cfg.cards.map(c=>`<option value="c:${c.id}" ${("c:"+c.id)===sel?"selected":""}>💳 ${esc(c.name)}</option>`).join("")}</optgroup>`; return h; }
+const byName = (a,b)=> a.name.localeCompare(b.name, "pt-BR", {sensitivity:"base"});
+function catOptions(kind, sel){ return S.cfg.categories.filter(c=>c.kind===kind && !c.archived).sort(byName).map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${c.icon} ${esc(c.name)}</option>`).join(""); }
+function accOptions(sel){ return S.cfg.accounts.filter(a=>!a.archived).sort(byName).map(a=>`<option value="a:${a.id}" ${("a:"+a.id)===sel?"selected":""}>${a.icon||"🏦"} ${esc(a.name)}</option>`).join(""); }
+function srcOptions(sel, withCards){ let h = `<optgroup label="Contas">${accOptions(sel)}</optgroup>`; if(withCards && S.cfg.cards.length) h += `<optgroup label="Cartões de crédito">${[...S.cfg.cards].sort(byName).map(c=>`<option value="c:${c.id}" ${("c:"+c.id)===sel?"selected":""}>💳 ${esc(c.name)}</option>`).join("")}</optgroup>`; return h; }
 
 function txForm(existing, preset){
   const it = existing || {type:"exp", date:todayStr(), paid:true, ...(preset||{})};
@@ -856,9 +860,12 @@ async function deleteTx(it){
 
 /* ---- Contas ---- */
 function manageAccounts(){
+  sheetBack = null;
   openSheet(`<h3>Contas</h3>${[["dia","Dia a dia"],["inv","Investimentos"]].map(([k,l])=>`<div class="pgh"><span>${l}</span></div><div class="list">${S.cfg.accounts.filter(a=>accKind(a)===k).map(a=>`<div class="row click" data-act="editAccount" data-id="${a.id}"><div class="ic">${accIc(a)}</div><div class="mid"><div class="ttl">${esc(a.name)}${a.archived?' <span class="badge">arquivada</span>':""}</div></div><div class="amt">${money(accountBalance(a.id))}</div></div>`).join("")||'<div class="empty">Nenhuma conta.</div>'}</div>`).join("")}<div class="btns" style="margin-top:12px"><button class="btn" data-act="newAccount">Nova do dia a dia</button><button class="btn sec" data-act="newInv">Novo investimento</button></div>`);
+  sheetCur = ()=>manageAccounts();
 }
 function accountForm(a, presetKind){
+  if(sheetCur) sheetBack = sheetCur;
   const x = a || {name:"",kind:presetKind||"dia",initial:0,icon:presetKind==="inv"?"🐷":"🏦"}; let icon = x.icon||"🏦"; let kind = a ? accKind(a) : x.kind; let logo = safeLogo(x.logo);
   const icons = ["🏦","👛","💵","🎟️","🐷","📈","🛟","🏖️","👴","🎯","💼","🪙"];
   const draw = ()=>{
@@ -881,11 +888,12 @@ function accountForm(a, presetKind){
       const obj = {name:fd.get("name").trim(), kind, initial:isNaN(ini)?0:ini, icon, logo, archived:!!fd.get("archived")};
       if(kind==="inv"){ const g=parseMoney(fd.get("goal")); obj.goal = g>0 ? g : null; obj.goalDate = fd.get("goalDate") || null; } else { obj.goal=null; obj.goalDate=null; }
       if(a) Object.assign(a,obj); else S.cfg.accounts.push({id:newId(),...obj});
-      saveCfg(); closeSheet(); render(); toast("Conta salva."); };
+      saveCfg(); sheetDone(); render(); toast("Conta salva."); };
     if(a) $("#delA").onclick = async ()=>{
       const used = allItems().some(i=>i.accountId===a.id||i.toAccountId===a.id) || S.cfg.cards.some(c=>c.accountId===a.id);
       if(used) return toast("Esta conta tem lançamentos. Use “Arquivar”.");
       if(await confirmBox("Excluir conta",`Excluir "${a.name}"?`,[{label:"Excluir",value:1,cls:"danger"}])){ S.cfg.accounts=S.cfg.accounts.filter(x=>x.id!==a.id); saveCfg(); render(); toast("Conta excluída."); }
+      sheetDone();
     };
   };
   draw();
@@ -893,9 +901,12 @@ function accountForm(a, presetKind){
 
 /* ---- Cartões ---- */
 function manageCards(){
+  sheetBack = null;
   openSheet(`<h3>Cartões de crédito</h3><div class="list">${S.cfg.cards.map(c=>`<div class="row click" data-act="editCard" data-id="${c.id}"><div class="ic">${cardIc(c)}</div><div class="mid"><div class="ttl">${esc(c.name)}</div><div class="meta">fecha dia ${c.closeDay} · vence dia ${c.dueDay}</div></div><div class="amt">${c.limit?money(c.limit):""}</div></div>`).join("")||'<div class="empty">Nenhum cartão.</div>'}</div><button class="btn" data-act="newCard" style="margin-top:12px">Novo cartão</button>`);
+  sheetCur = ()=>manageCards();
 }
 function cardForm(c){
+  if(sheetCur) sheetBack = sheetCur;
   if(!S.cfg.accounts.length) return toast("Cadastre uma conta primeiro.");
   const x = c || {name:"",limit:0,closeDay:1,dueDay:10,accountId:S.cfg.accounts[0].id};
   let logo = safeLogo(x.logo);
@@ -914,10 +925,11 @@ function cardForm(c){
   $("#cf").onsubmit = e=>{ e.preventDefault(); const fd=new FormData(e.target); const lim=parseMoney(fd.get("limit"));
     const obj = {name:fd.get("name").trim(), limit:isNaN(lim)?0:lim, closeDay:Math.min(31,Math.max(1,+fd.get("closeDay"))), dueDay:Math.min(31,Math.max(1,+fd.get("dueDay"))), accountId:fd.get("acc").slice(2), logo};
     if(c) Object.assign(c,obj); else { const nc={id:newId(),...obj}; S.cfg.cards.push(nc); S.cardSel=nc.id; }
-    saveCfg(); closeSheet(); render(); toast("Cartão salvo."); };
+    saveCfg(); sheetDone(); render(); toast("Cartão salvo."); };
   if(c) $("#delC").onclick = async ()=>{
     if(allItems().some(i=>i.cardId===c.id)) return toast("Este cartão tem compras lançadas e não pode ser excluído.");
     if(await confirmBox("Excluir cartão",`Excluir "${c.name}"?`,[{label:"Excluir",value:1,cls:"danger"}])){ S.cfg.cards=S.cfg.cards.filter(x=>x.id!==c.id); saveCfg(); render(); }
+    sheetDone();
   };
   };
   draw();
@@ -937,13 +949,16 @@ function payInvoice(key){
 
 /* ---- Categorias ---- */
 function manageCats(kind="exp"){
+  sheetBack = null;
   openSheet(`<h3>Categorias</h3><div class="seg"><button class="${kind==="exp"?"on e":""}" data-k="exp">Despesas</button><button class="${kind==="inc"?"on i":""}" data-k="inc">Receitas</button></div>
   <div class="list">${S.cfg.categories.filter(c=>c.kind===kind).map(c=>`<div class="row click" data-act="editCat" data-id="${c.id}"><div class="ic">${c.icon}</div><div class="mid"><div class="ttl">${esc(c.name)}${c.archived?' <span class="badge">arquivada</span>':""}</div></div><div class="mut">›</div></div>`).join("")}</div>
   <button class="btn" id="newCat" style="margin-top:12px">Nova categoria</button>`);
   $("#sheet").querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>manageCats(b.dataset.k));
   $("#newCat").onclick = ()=>catForm(null, kind);
+  sheetCur = ()=>manageCats(kind);
 }
 function catForm(c, kind){
+  if(sheetCur) sheetBack = sheetCur;
   const x = c || {name:"",kind,icon:"❓"}; let icon=x.icon;
   openSheet(`<h3>${c?"Editar categoria":"Nova categoria"}</h3><form id="kf">
     <label class="f">Nome<input name="name" value="${esc(x.name)}" required maxlength="30"></label>
@@ -963,7 +978,7 @@ function catForm(c, kind){
 function budgetsForm(){
   const spent = spentByCat(S.month);
   const groups = budgetGroups();
-  const cats = S.cfg.categories.filter(c=>c.kind==="exp" && !c.archived);
+  const cats = S.cfg.categories.filter(c=>c.kind==="exp" && !c.archived).sort(byName);
   openSheet(`<h3>Limites mensais</h3><p class="t2" style="margin-top:-6px;font-size:14px">Deixe em branco o que não quiser acompanhar. Gasto em ${ymLabel(S.month)} ao lado.</p><form id="bf">
   <div class="pgh"><span>Limites combinados</span><button type="button" class="linkbtn" data-grp-new>+ Combinar categorias</button></div>
   ${groups.length ? groups.map(g=>`<div class="f budrow"><span class="bname">${cat(g.catIds[0])?.icon||"🧩"} ${esc(groupName(g))}<br><span class="mut" style="font-size:12px">${g.catIds.map(id=>esc(cat(id).name)).join(" + ")} · gasto ${money(g.catIds.reduce((s,id)=>s+(spent[id]||0),0))}</span><br><button type="button" class="linkbtn" data-grp-edit="${g.id}">Editar</button></span><input name="g:${g.id}" inputmode="numeric" data-money placeholder="—" value="${g.limit?fmtInput(g.limit):""}"></div>`).join("") : `<p class="mut" style="font-size:13px;margin:0 0 8px">Some duas ou mais categorias num limite só, por exemplo Saúde + Cuidados pessoais. Elas continuam separadas nos lançamentos e relatórios.</p>`}
@@ -981,7 +996,7 @@ function budgetsForm(){
 }
 function groupForm(g){
   const others = new Set(budgetGroups().filter(x=>!g || x.id!==g.id).flatMap(x=>x.catIds));
-  const cats = S.cfg.categories.filter(c=>c.kind==="exp" && !c.archived && !others.has(c.id));
+  const cats = S.cfg.categories.filter(c=>c.kind==="exp" && !c.archived && !others.has(c.id)).sort(byName);
   const sel = new Set(g ? g.catIds : []);
   const draw = ()=>{
     const f0 = $("#gf"); const keep = f0 ? {name:f0.gname.value, limit:f0.glimit.value} : {};
@@ -1035,7 +1050,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.8";
+const APP_VERSION = "1.4.9";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1428,6 +1443,7 @@ document.addEventListener("click", e=>{
   else if(a==="rmCat"){ S.fCat.delete(t.dataset.k); render(); }
   else if(a==="rmRec"){ S.fRec.delete(t.dataset.k); render(); }
   else if(a==="clearF"){ S.fAcc.clear(); S.fCat.clear(); S.fRec.clear(); S.txFilter="all"; render(); }
+  else if(a==="accfilter"){ S.fAcc=new Set([t.dataset.k]); S.fCat.clear(); S.fRec.clear(); S.txFilter="all"; S.txSearch=""; S.tab="tx"; render(); window.scrollTo(0,0); }
   else if(a==="catfilter"){ const ids = t.dataset.id ? [t.dataset.id] : (t.dataset.ids||"").split(",").filter(Boolean); S.fCat=new Set(ids); S.fAcc.clear(); S.fRec.clear(); S.txFilter="all"; S.txSearch=""; S.tab="tx"; render(); window.scrollTo(0,0); }
   else if(a==="goinv"){ S.tab="cards"; S.cardSel=t.dataset.card; S.cardInv=t.dataset.key; S.month=t.dataset.key; render(); window.scrollTo(0,0); }
   else if(a==="selcard"){ S.cardSel=id; render(); }
