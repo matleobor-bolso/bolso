@@ -54,6 +54,10 @@ const card = id => S.cfg.cards.find(c=>c.id===id);
 const cat = id => S.cfg.categories.find(c=>c.id===id);
 function allItems(){ const out=[]; for(const ym in S.months) for(const it of S.months[ym]) out.push(it); return out; }
 function monthItems(ym){ return (S.months[ym]||[]).slice(); }
+/* Fixo no cartão ainda não confirmado (não caiu no cartão): paid === false num item de cartão.
+   Aparece nas listas como "a confirmar", mas não soma na fatura, nos limites nem nos totais. */
+const unconf = i => !!i.cardId && i.paid === false;
+const isPending = i => i.cardId ? unconf(i) : !i.paid && (i.type==="exp" || i.type==="inc");
 
 function invoiceKey(dateStr, c, inv){
   if(inv) return inv;
@@ -69,7 +73,8 @@ function invoiceDates(key, c){
   return { close:`${closeYm}-${pad(Math.min(c.closeDay,daysIn(cy,cm)))}`, due:`${key}-${pad(Math.min(c.dueDay,daysIn(dy,dm)))}` };
 }
 function invoiceItems(cardId, key){ const c=card(cardId); if(!c) return []; return allItems().filter(i=>i.cardId===cardId && invoiceKey(i.date,c,i.inv)===key).sort((a,b)=>a.date<b.date?-1:1); }
-function invoiceTotal(cardId,key){ return invoiceItems(cardId,key).reduce((s,i)=>s+(i.type==="exp"?i.amount:-i.amount),0); }
+function invoiceTotal(cardId,key){ return invoiceItems(cardId,key).reduce((s,i)=>s+(unconf(i)?0:(i.type==="exp"?i.amount:-i.amount)),0); }
+function invoiceUnconf(cardId,key){ return invoiceItems(cardId,key).filter(unconf).reduce((s,i)=>s+i.amount,0); }
 function invoiceStatus(cardId,key){
   const p = S.cfg.invoicePaid[cardId+"|"+key]; if(p) return {s:"paga",label:"Paga"};
   const {close} = invoiceDates(key, card(cardId));
@@ -121,10 +126,10 @@ function effDate(i, mode){
 /* A data do cartão escolhida em Relatórios vale só para os relatórios.
    Limites e Entrou/Saiu usam sempre a data da parcela (como o Organizze). */
 function effItems(ym, mode="parcela"){
-  if(mode==="parcela") return monthItems(ym).filter(i=>i.type==="exp" || i.type==="inc");
+  if(mode==="parcela") return monthItems(ym).filter(i=>(i.type==="exp" || i.type==="inc") && !unconf(i));
   if(!effCache || effCache.rev!==dataRev || effCache.mode!==mode || effCache.months!==S.months){
     const map = {};
-    for(const k in S.months) for(const i of S.months[k]){ if(i.type!=="exp" && i.type!=="inc") continue; const e = ymOf(effDate(i, mode)); (map[e] ||= []).push(i); }
+    for(const k in S.months) for(const i of S.months[k]){ if((i.type!=="exp" && i.type!=="inc") || unconf(i)) continue; const e = ymOf(effDate(i, mode)); (map[e] ||= []).push(i); }
     effCache = { rev:dataRev, mode, months:S.months, map };
   }
   return effCache.map[ym] || [];
@@ -209,9 +214,10 @@ function rowTx(i, opts={}){
   const tags = [i.inst ? i.inst : "", i.fixed ? "fixo" : ""].filter(Boolean).join(" · ");
   const sign = isRend ? (i.amount>=0?"+":"−") : i.type==="inc" ? "+" : (i.type==="exp" ? "−" : "");
   const cls = isRend ? (i.amount>=0?"inc":"exp") : i.type==="inc" ? "inc" : (i.type==="exp" ? "" : "t2");
-  const pending = !i.paid && !i.cardId;
-  const sub = opts.showDate ? `${i.date.slice(8)}/${i.date.slice(5,7)}` : (pending ? (i.type==="inc"?"a receber":"a pagar") : "");
-  const chk = (pending && !opts.noCheck) ? `<button class="chk" data-act="toggle" data-id="${i.id}" aria-label="Marcar como ${i.type==="inc"?"recebido":"pago"}" title="Marcar como ${i.type==="inc"?"recebido":"pago"}">✓</button>` : "";
+  const pending = isPending(i);
+  const pw = i.cardId ? "a confirmar" : (i.type==="inc"?"a receber":"a pagar");
+  const sub = opts.showDate ? `${i.date.slice(8)}/${i.date.slice(5,7)}${pending&&i.cardId?" · a confirmar":""}` : (pending ? pw : "");
+  const chk = (pending && !opts.noCheck) ? `<button class="chk" data-act="toggle" data-id="${i.id}" aria-label="${i.cardId?"Confirmar no cartão":"Marcar como "+(i.type==="inc"?"recebido":"pago")}" title="${i.cardId?"Confirmar no cartão":"Marcar como "+(i.type==="inc"?"recebido":"pago")}">✓</button>` : "";
   return `<div class="row click ${pending?"pend":""}" data-act="edit" data-id="${i.id}">
     <div class="ic">${icon}</div>
     <div class="mid"><div class="ttl">${esc(i.desc|| (isRend?"Rendimento":trKind) || (c?.name) || "Lançamento")}</div><div class="meta">${trKind?trKind+" · ":""}${esc(where)}${tags?` · ${esc(tags)}`:""}</div></div>
@@ -228,7 +234,7 @@ function viewHome(){
     <div class="hio"><div><span>Entrou</span><b>${money(inc)}</b></div><div><span>Saiu</span><b>${money(exp)}</b></div><div><span>Sobra</span><b>${money(inc-exp)}</b></div></div></div>`;
 
   // pendências
-  const pend = monthItems(ym).filter(i=>!i.paid && !i.cardId).sort((a,b)=>a.date<b.date?-1:1);
+  const pend = monthItems(ym).filter(isPending).sort((a,b)=>a.date<b.date?-1:1);
   const invDue = [];
   S.cfg.cards.forEach(c=>{ const k=ym; const t=invoiceTotal(c.id,k); if(t>0 && !S.cfg.invoicePaid[c.id+"|"+k]) invDue.push({c,k,t,due:invoiceDates(k,c).due}); });
   const toPay = pend.filter(i=>i.type==="exp").reduce((s,i)=>s+i.amount,0) + invDue.reduce((s,x)=>s+x.t,0);
@@ -376,7 +382,7 @@ function viewTx(){
   if(f==="inc") items = items.filter(i=>i.type==="inc");
   if(f==="exp") items = items.filter(i=>i.type==="exp");
   if(f==="tr") items = items.filter(i=>i.type==="tr");
-  if(f==="pend") items = items.filter(i=>!i.paid && !i.cardId);
+  if(f==="pend") items = items.filter(isPending);
   if(f==="inv") items = items.filter(i=>i.type==="rend" || (i.type==="tr" && (isInv(i.accountId) || isInv(i.toAccountId))));
   if(S.fAcc.size) items = items.filter(i=> i.cardId ? S.fAcc.has("c:"+i.cardId) : (S.fAcc.has("a:"+i.accountId) || (i.type==="tr" && S.fAcc.has("a:"+i.toAccountId))));
   if(S.fCat.size) items = items.filter(i=>i.catId && S.fCat.has(i.catId));
@@ -390,7 +396,7 @@ function viewTx(){
     h += `<div class="chips">` + (f!=="all"?`<button class="chip sel" data-act="rmType">${TL[f]} ✕</button>`:"") + [...S.fRec].map(k=>`<button class="chip sel" data-act="rmRec" data-k="${k}">${REC_LABEL[k]} ✕</button>`).join("") + [...S.fAcc].map(k=>`<button class="chip sel" data-act="rmAcc" data-k="${k}">${esc(srcLabel(k))} ✕</button>`).join("") + [...S.fCat].map(id=>`<button class="chip sel" data-act="rmCat" data-k="${id}">${cat(id)?.icon||""} ${esc(cat(id)?.name||"?")} ✕</button>`).join("") + `<button class="chip" data-act="clearF">Limpar</button></div>`;
   }
   if(!items.length) return h + `<div class="empty">Nenhum lançamento${nF||q?" com esses filtros":" neste mês"}.<br>Toque em <b>+</b> para adicionar.</div>`;
-  let inc=0,exp=0; items.forEach(i=>{ if(i.type==="inc") inc+=i.amount; if(i.type==="exp") exp+=i.amount; });
+  let inc=0,exp=0; items.forEach(i=>{ if(unconf(i)) return; if(i.type==="inc") inc+=i.amount; if(i.type==="exp") exp+=i.amount; });
   let cur = null;
   items.forEach(i=>{ if(i.date!==cur){ if(cur) h+=`</div>`; cur=i.date; h+=`<div class="dayhead">${dayLabel(i.date)}</div><div class="list">`; } h += rowTx(i); });
   h += `</div><div class="totbar"><span>${items.length} lançamento${items.length>1?"s":""}</span><span><span class="inc">+${money(inc)}</span> · <span class="exp">−${money(exp)}</span></span></div>`;
@@ -439,6 +445,7 @@ function viewCards(){
   const paidInfo = S.cfg.invoicePaid[c.id+"|"+key];
   h += `<div class="card"><div style="display:flex;justify-content:space-between;align-items:center"><div><div class="t2" style="font-size:13px">Fatura de ${ymLabel(key)}</div><div style="font-size:26px;font-weight:700">${money(total)}</div></div><span class="badge ${st.s==="paga"?"paid":st.s==="fechada"?"closed":""}">${st.label}</span></div>
     <div class="mut" style="font-size:13px;margin-top:4px">Fecha ${d.close.slice(8)}/${d.close.slice(5,7)} · vence ${d.due.slice(8)}/${d.due.slice(5,7)}${paidInfo?` · paga com ${esc(acc(paidInfo.accountId)?.name||"conta")}`:""}</div>
+    ${invoiceUnconf(c.id,key)?`<div class="mut" style="font-size:13px;margin-top:2px">+ ${money(invoiceUnconf(c.id,key))} em fixos a confirmar (fora do total)</div>`:""}
     <div class="btns" style="margin-top:12px">
       ${paidInfo?`<button class="btn sec" data-act="unpayinv" data-key="${key}">Reabrir fatura</button>`:(total>0?`<button class="btn" data-act="payinv" data-key="${key}">Pagar fatura</button>`:"")}
 
@@ -716,7 +723,7 @@ function txForm(existing, preset){
       </div>
       ${isTr?`<div class="f"><span>De</span>${chipPicker("src", srcItems(false, true), src.startsWith("c:")?"a:"+firstDia.id:src)}</div><div class="f"><span>Para</span>${chipPicker("to", srcItems(false, true), toV)}</div>`
             :`<div class="f"><span>${type==="exp"?"Pago com":"Recebido em"}</span>${chipPicker("src", srcItems(type==="exp", false, existing ? src : null), src)}</div>`}
-      <div class="switch" id="paidRow"><span>${type==="inc"?"Recebido":"Pago"}</span><input type="checkbox" name="paid" ${it.paid?"checked":""}></div>
+      <div class="switch" id="paidRow"><span id="paidLbl">${type==="inc"?"Recebido":"Pago"}</span><input type="checkbox" name="paid" ${it.paid!==false?"checked":""}></div>
       <button type="button" class="linkbtn moreopt" id="moreOpt" ${showMore?'style="display:none"':""}>+ Repetir, parcelar ou observação</button>
       <div id="moreBox" ${showMore?"":'style="display:none"'}>
       ${!existing?`<label class="f">Repetir<select name="rep" id="repSel"><option value="no">Não repete</option>${isTr?"":`<option value="inst">Parcelado</option>`}<option value="fixed">Fixo todo mês</option></select></label>
@@ -728,11 +735,14 @@ function txForm(existing, preset){
     </form>`);
     $("#sheet").querySelectorAll("[data-type]").forEach(b=>b.onclick=()=>{ type=b.dataset.type; draw(); });
     const paidRow=$("#paidRow"); const f = $("#txf");
-    const upd = ()=>{ paidRow.style.display = (!isTr && f.src.value.startsWith("c:")) ? "none":"flex"; };
+    // no cartão, a chave vira "Confirmado no cartão" e só aparece em lançamento fixo
+    const upd = ()=>{ const onCard = !isTr && f.src.value.startsWith("c:"); const fixed = existing ? !!existing.fixed : ($("#repSel")?.value==="fixed");
+      paidRow.style.display = onCard && !fixed ? "none" : "flex";
+      $("#paidLbl").textContent = onCard ? "Confirmado no cartão" : (type==="inc"?"Recebido":"Pago"); };
     bindChipPickers(f, (n,v)=>{ if(n==="src") src=v; if(n==="to") toV=v; upd(); }); upd();
     bindSuggestions(f, type);
     $("#moreOpt").onclick=()=>{ showMore=true; $("#moreBox").style.display="block"; $("#moreOpt").style.display="none"; };
-    const rep=$("#repSel"); if(rep) rep.onchange=()=>{ $("#nRow").style.display = rep.value==="inst"?"block":"none"; };
+    const rep=$("#repSel"); if(rep) rep.onchange=()=>{ $("#nRow").style.display = rep.value==="inst"?"block":"none"; upd(); };
     const dateIn = $("#txf").date; dateIn.onchange = ()=>{ if(!existing) $("#txf").paid.checked = dateIn.value <= todayStr(); };
     $("#txf").onsubmit = e=>{ e.preventDefault(); saveTx(existing, type, new FormData(e.target)); };
     if(existing) $("#delTx").onclick = ()=>deleteTx(existing);
@@ -810,17 +820,18 @@ async function saveTx(existing, type, fd){
     base.catId = fd.get("cat");
     if(src.startsWith("c:")){ base.cardId = src.slice(2); base.accountId=null; } else { base.accountId = src.slice(2); base.cardId=null; }
   }
-  base.paid = base.cardId ? true : !!fd.get("paid");
+  const fixedNow = existing ? !!existing.fixed : fd.get("rep")==="fixed";
+  base.paid = (base.cardId && !fixedNow) ? true : !!fd.get("paid"); // cartão: só o fixo pode ficar a confirmar
   const touched = [];
   if(existing){
     let scope = "one";
     if(existing.group){ scope = await confirmBox(existing.inst?"Lançamento parcelado":"Lançamento fixo","Aplicar a alteração a quais lançamentos? A data só muda neste; o pago/não pago muda nos escolhidos.",[{label:"Somente este",value:"one"},{label:"Este e os próximos",value:"next"},{label:"Todos da série",value:"all"}]); if(!scope) return; }
-    const paidChanged = !base.cardId && !!existing.paid !== !!base.paid;
+    const paidChanged = (!base.cardId || existing.fixed) && (existing.paid!==false) !== !!base.paid;
     const apply = (it, isThis)=>{
       const old = ymOf(it.date);
       Object.assign(it, {desc:base.desc, notes:base.notes, catId:base.catId, accountId:base.accountId, cardId:base.cardId, toAccountId:base.toAccountId, amount});
       if(isThis){ it.date = base.date; it.paid = base.paid; }
-      else if(paidChanged && !it.cardId) it.paid = base.paid;
+      else if(paidChanged && (!it.cardId || it.fixed)) it.paid = base.paid;
       touched.push(old);
       if(ymOf(it.date)!==old){ removeItem(it.id); putItem(it); touched.push(ymOf(it.date)); }
     };
@@ -838,7 +849,7 @@ async function saveTx(existing, type, fd){
     toast(`${n} parcelas criadas.`);
   } else if(rep==="fixed"){
     const g = newId(); const day = +date.slice(8);
-    for(let k=0;k<24;k++){ const d = dateAddMonths(date,k,day); const it = {...base, id:newId(), created:now+k, group:g, fixed:true, amount, date:d, paid: base.cardId ? true : (k===0 ? base.paid : false)}; touched.push(putItem(it)); }
+    for(let k=0;k<24;k++){ const d = dateAddMonths(date,k,day); const it = {...base, id:newId(), created:now+k, group:g, fixed:true, amount, date:d, paid: k===0 ? base.paid : false}; /* fixo (conta ou cartão): os próximos meses ficam a pagar/a confirmar */ touched.push(putItem(it)); }
     toast("Lançamento fixo criado para os próximos 24 meses.");
   } else {
     touched.push(putItem({...base, id:newId(), created:now, amount}));
@@ -1052,7 +1063,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.4.10";
+const APP_VERSION = "1.5.0";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
