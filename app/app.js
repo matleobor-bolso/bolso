@@ -419,7 +419,7 @@ function filtersSheet(){
   let type = S.txFilter; const sa = new Set(S.fAcc), sc = new Set(S.fCat), sr = new Set(S.fRec);
   const used = new Set(monthItems(S.month).map(i=>i.catId));
   const accItems = [...S.cfg.accounts.filter(a=>!a.archived).map(a=>({k:"a:"+a.id, name:a.name, icon:accIcSm(a)})), ...S.cfg.cards.filter(c=>!c.archived).map(c=>({k:"c:"+c.id, name:c.name, icon:cardIcSm(c)}))];
-  const catItems = kind => S.cfg.categories.filter(c=>c.kind===kind && (!c.archived || used.has(c.id))).sort((a,b)=>(used.has(b.id)-used.has(a.id)) || a.name.localeCompare(b.name)).map(c=>({k:c.id, name:c.name, icon:c.icon}));
+  const catItems = kind => S.cfg.categories.filter(c=>c.kind===kind && (!c.archived || used.has(c.id))).sort((a,b)=>(!!a.archived-!!b.archived) || (used.has(b.id)-used.has(a.id)) || a.name.localeCompare(b.name)).map(c=>({k:c.id, name:c.archived ? c.name+" (arquivada)" : c.name, icon:c.icon}));
   const pills = (items, set, grp) => `<div class="pills">${items.map(i=>`<button type="button" class="pill ${set.has(i.k)?"on":""}" data-grp="${grp}" data-k="${i.k}">${i.icon} ${esc(i.name)}</button>`).join("")}</div>`;
   const draw = ()=>{
     const st = $("#sheet") ? $("#sheet").scrollTop : 0;
@@ -706,6 +706,9 @@ function confirmBox(title, text, buttons){
 }
 
 const byName = (a,b)=> a.name.localeCompare(b.name, "pt-BR", {sensitivity:"base"});
+// arquivados sempre no fim (ordem estável: o resto mantém a ordem de antes)
+const archivedLast = list => [...list].sort((a,b)=>(!!a.archived)-(!!b.archived));
+const archTag = (x, word)=> x.archived ? `<div class="meta"><span class="badge">${word}</span></div>` : "";
 function catOptions(kind, sel){ return S.cfg.categories.filter(c=>c.kind===kind && !c.archived).sort(byName).map(c=>`<option value="${c.id}" ${c.id===sel?"selected":""}>${c.icon} ${esc(c.name)}</option>`).join(""); }
 function accOptions(sel){ return S.cfg.accounts.filter(a=>!a.archived).sort(byName).map(a=>`<option value="a:${a.id}" ${("a:"+a.id)===sel?"selected":""}>${a.icon||"🏦"} ${esc(a.name)}</option>`).join(""); }
 function srcOptions(sel, withCards){ let h = `<optgroup label="Contas">${accOptions(sel)}</optgroup>`; if(withCards && S.cfg.cards.length) h += `<optgroup label="Cartões de crédito">${[...S.cfg.cards].sort(byName).map(c=>`<option value="c:${c.id}" ${("c:"+c.id)===sel?"selected":""}>💳 ${esc(c.name)}</option>`).join("")}</optgroup>`; return h; }
@@ -883,7 +886,7 @@ async function deleteTx(it){
 /* ---- Contas ---- */
 function manageAccounts(){
   sheetBack = null;
-  openSheet(`<h3>Contas</h3>${[["dia","Dia a dia"],["inv","Investimentos"]].map(([k,l])=>`<div class="pgh"><span>${l}</span></div><div class="list">${S.cfg.accounts.filter(a=>accKind(a)===k).map(a=>`<div class="row click" data-act="editAccount" data-id="${a.id}"><div class="ic">${accIc(a)}</div><div class="mid"><div class="ttl">${esc(a.name)}${a.archived?' <span class="badge">arquivada</span>':""}</div></div><div class="amt">${money(accountBalance(a.id))}</div></div>`).join("")||'<div class="empty">Nenhuma conta.</div>'}</div>`).join("")}<div class="btns" style="margin-top:12px"><button class="btn" data-act="newAccount">Nova do dia a dia</button><button class="btn sec" data-act="newInv">Novo investimento</button></div>`);
+  openSheet(`<h3>Contas</h3>${[["dia","Dia a dia"],["inv","Investimentos"]].map(([k,l])=>`<div class="pgh"><span>${l}</span></div><div class="list">${archivedLast(S.cfg.accounts.filter(a=>accKind(a)===k)).map(a=>`<div class="row click ${a.archived?"arch":""}" data-act="editAccount" data-id="${a.id}"><div class="ic">${accIc(a)}</div><div class="mid"><div class="ttl">${esc(a.name)}</div>${archTag(a,"arquivada")}</div><div class="amt">${money(accountBalance(a.id))}</div></div>`).join("")||'<div class="empty">Nenhuma conta.</div>'}</div>`).join("")}<div class="btns" style="margin-top:12px"><button class="btn" data-act="newAccount">Nova do dia a dia</button><button class="btn sec" data-act="newInv">Novo investimento</button></div>`);
   sheetCur = ()=>manageAccounts();
 }
 function accountForm(a, presetKind){
@@ -973,7 +976,7 @@ function payInvoice(key){
 function manageCats(kind="exp"){
   sheetBack = null;
   openSheet(`<h3>Categorias</h3><div class="seg"><button class="${kind==="exp"?"on e":""}" data-k="exp">Despesas</button><button class="${kind==="inc"?"on i":""}" data-k="inc">Receitas</button></div>
-  <div class="list">${S.cfg.categories.filter(c=>c.kind===kind).map(c=>`<div class="row click" data-act="editCat" data-id="${c.id}"><div class="ic">${c.icon}</div><div class="mid"><div class="ttl">${esc(c.name)}${c.archived?' <span class="badge">arquivada</span>':""}</div></div><div class="mut">›</div></div>`).join("")}</div>
+  <div class="list">${archivedLast(S.cfg.categories.filter(c=>c.kind===kind)).map(c=>`<div class="row click ${c.archived?"arch":""}" data-act="editCat" data-id="${c.id}"><div class="ic">${c.icon}</div><div class="mid"><div class="ttl">${esc(c.name)}</div>${archTag(c,"arquivada")}</div><div class="mut">›</div></div>`).join("")}</div>
   <button class="btn" id="newCat" style="margin-top:12px">Nova categoria</button>`);
   $("#sheet").querySelectorAll("[data-k]").forEach(b=>b.onclick=()=>manageCats(b.dataset.k));
   $("#newCat").onclick = ()=>catForm(null, kind);
@@ -1072,7 +1075,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.5.1";
+const APP_VERSION = "1.5.2";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
