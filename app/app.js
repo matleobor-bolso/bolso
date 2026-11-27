@@ -387,10 +387,19 @@ function viewTx(){
   if(S.fAcc.size) items = items.filter(i=> i.cardId ? S.fAcc.has("c:"+i.cardId) : (S.fAcc.has("a:"+i.accountId) || (i.type==="tr" && S.fAcc.has("a:"+i.toAccountId))));
   if(S.fCat.size) items = items.filter(i=>i.catId && S.fCat.has(i.catId));
   if(S.fRec.size) items = items.filter(i=>S.fRec.has(recKind(i)));
-  if(q) items = items.filter(i=>(i.desc||"").toLowerCase().includes(q) || (cat(i.catId)?.name||"").toLowerCase().includes(q) || (i.notes||"").toLowerCase().includes(q));
+  if(q){
+    // texto: descrição, categoria e observação, sem diferenciar acentos. Valor: "40,90", "40.90", "40" ou "1.234,56"
+    const nq = normTxt(q), vq = q.replace(/r\$|\s/g,"").replace(/\.(?=\d{3}(\D|$))/g,"").replace(".",",");
+    const isNum = /^[\d.,]+$/.test(q.replace(/r\$|\s/g,""));
+    items = items.filter(i=>{
+      if(normTxt(i.desc||"").includes(nq) || normTxt(cat(i.catId)?.name||"").includes(nq) || normTxt(i.notes||"").includes(nq)) return true;
+      if(!isNum) return false;
+      const v = Math.abs(i.amount).toFixed(2).replace(".",","); return v.includes(vq);
+    });
+  }
   items.sort((a,b)=> a.date===b.date ? (b.created||0)-(a.created||0) : (a.date<b.date?1:-1));
   const nF = (f!=="all"?1:0) + S.fAcc.size + S.fCat.size + S.fRec.size;
-  let h = `<div class="txbar"><input class="search" id="txSearch" type="search" placeholder="🔍  Buscar" value="${esc(S.txSearch)}"><button class="fbtn ${nF?"on":""}" data-act="filters">Filtros${nF?` (${nF})`:""}</button></div>`;
+  let h = `<div class="txbar"><input class="search" id="txSearch" type="search" placeholder="🔍  Buscar por nome ou valor" value="${esc(S.txSearch)}"><button class="fbtn ${nF?"on":""}" data-act="filters">Filtros${nF?` (${nF})`:""}</button></div>`;
   if(nF){
     const TL = {exp:"Despesas",inc:"Receitas",tr:"Transferências",pend:"Pendentes",inv:"Investimentos"};
     h += `<div class="chips">` + (f!=="all"?`<button class="chip sel" data-act="rmType">${TL[f]} ✕</button>`:"") + [...S.fRec].map(k=>`<button class="chip sel" data-act="rmRec" data-k="${k}">${REC_LABEL[k]} ✕</button>`).join("") + [...S.fAcc].map(k=>`<button class="chip sel" data-act="rmAcc" data-k="${k}">${esc(srcLabel(k))} ✕</button>`).join("") + [...S.fCat].map(id=>`<button class="chip sel" data-act="rmCat" data-k="${id}">${cat(id)?.icon||""} ${esc(cat(id)?.name||"?")} ✕</button>`).join("") + `<button class="chip" data-act="clearF">Limpar</button></div>`;
@@ -1063,7 +1072,7 @@ function importForm(){
 
 
 /* ============ Configuração ============ */
-const APP_VERSION = "1.5.0";
+const APP_VERSION = "1.5.1";
 const GOOGLE_CLIENT_ID = "157023250608-ke632c5rqisp7v3nkpqupru6caj9nulf.apps.googleusercontent.com";
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
 const DRIVE_FILE = "bolso-dados.json";
@@ -1349,7 +1358,8 @@ document.addEventListener("visibilitychange", ()=>{
 });
 window.addEventListener("online", ()=>{ renderSync(); scheduleSync(); });
 window.addEventListener("offline", renderSync);
-let resizeT; window.addEventListener("resize", ()=>{ clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
+// Só redesenha se a LARGURA mudar: abrir o teclado do celular muda a altura e, redesenhando, o campo perdia o foco (a busca fechava o teclado).
+let resizeT, lastW = window.innerWidth; window.addEventListener("resize", ()=>{ if(window.innerWidth===lastW) return; lastW = window.innerWidth; clearTimeout(resizeT); resizeT = setTimeout(render, 150); });
 window.addEventListener("pagehide", ()=>{ if(!locked) markUnlocked(); persistLocal(true); });
 
 /* ============ Boas-vindas (sem dados ainda) ============ */
